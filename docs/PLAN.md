@@ -1,0 +1,212 @@
+# Project plan
+
+Phased, with explicit entry and exit criteria for each stage. The ordering
+is deliberate: every phase either proves the hardware or narrows the
+protocol, so that when something fails you always know which of the two it
+was.
+
+**Status: Phase 1 complete. Phase 2 blocked on hardware purchase.**
+
+---
+
+## Phase 0 — Establish what the car actually uses ✅ DONE
+
+**Goal:** confirm the physical layer before spending money.
+
+- [x] Confirm the P38A has no CAN bus
+- [x] Confirm GEMS uses ISO 9141 K-line at 10400 baud
+- [x] Identify the diagnostic socket pinout (pin 7 K, pin 15 L, 4/5 GND, 16 +12 V)
+- [x] Identify the safety constraint (BeCM lockout / EKA code)
+
+**Outcome:** CAN abandoned; SN65HVD230 shelved. See
+[SESSION-NOTES.md](SESSION-NOTES.md).
+
+---
+
+## Phase 1 — Firmware transport ✅ DONE
+
+**Goal:** a correct ISO 9141 transport and a console to drive it, building
+clean, before any hardware exists.
+
+- [x] UART at 10400 baud with half-duplex echo consumption and verification
+- [x] ISO 9141 timing constants (W1–W5, P1–P4)
+- [x] Bit-banged 5-baud slow init with glitch-free TX pin handover
+- [x] KWP2000 fast init
+- [x] Passive sniffer with gap-based frame splitting
+- [x] Address scanner
+- [x] Two independent transmit gates
+- [x] Builds against ESP-IDF v6.0.1 — 185 KB, 82 % partition free
+
+**Outcome:** `RRp38KLineInterface.bin` builds. Not yet flashed.
+
+---
+
+## Phase 2 — Procure hardware ⬅ CURRENT
+
+**Goal:** get two independent transceivers so hardware faults and protocol
+faults can be told apart.
+
+- [ ] Order a **LIN transceiver breakout** (MCP2004 or TJA1020)
+- [ ] Order a **KKL 409.1 cable, FTDI FT232RL version**
+- [ ] Order the supporting parts: automotive 12 V→5 V buck, 510 Ω, 100 nF ×2,
+      1 A inline fuse
+- [ ] Optionally, a bare L9637D for a permanent build later
+- [ ] **Find and write down the EKA code for the car**
+
+Full reasoning in [INTERFACE-MODULES.md](INTERFACE-MODULES.md).
+
+**Exit criteria:** parts in hand, EKA code recorded somewhere that is not
+inside the vehicle.
+
+---
+
+## Phase 3 — Bench bring-up (no car)
+
+**Goal:** prove the interface electrically, with zero risk to the vehicle.
+
+1. Flash the firmware. Confirm the console banner and `p38>` prompt.
+2. `status` — verify the pin mapping matches how you actually wired it.
+3. Wire the transceiver to a 12 V bench supply, K pulled up through 510 Ω,
+   nothing else on the bus.
+4. Rebuild with `CONFIG_RRP38_ALLOW_TX=y`.
+5. `arm --yes`, then `send 55` — the byte must come back as an echo.
+
+**Why this works:** the K-line is half-duplex, so the echo is inherent. No
+loopback jig needed. `kline_write()` verifies it on every byte.
+
+**Exit criteria:** `send` succeeds with no echo mismatch. This means level
+shifting, grounding, pull-up and baud rate are all correct.
+
+**If it fails:**
+
+| Symptom | Likely cause |
+|---------|-------------|
+| "no echo for byte" | Enable/SLP pin not driven high; no 12 V; missing pull-up |
+| "echo mismatch" | Baud rate wrong; 5 V logic feeding a 3.3 V pin; bad ground |
+| Nothing at all, console dead | Wrong UART port — UART0 is the console |
+
+---
+
+## Phase 4 — Passive capture in the car
+
+**Goal:** see real traffic. Still zero transmit risk.
+
+Build **passive** for this phase (`CONFIG_RRP38_ALLOW_TX=n`) so transmission
+is not merely disarmed but absent from the binary.
+
+1. Connect to socket pin 7, ground to 4/5, 12 V to 16 through the fuse.
+2. `sniff -t 60` across several states: ignition off, ignition on, engine
+   cranking, engine running, and while operating things (windows, EAS
+   height change, climate).
+
+**Expected result: possibly nothing.** The P38 K-line is not chatty when
+idle — it answers rather than broadcasts. Silence here is *normal* and does
+not mean the interface is broken, which is exactly why Phase 3 comes first.
+
+**Exit criteria:** either real bytes captured, or confident (because Phase 3
+passed) that the bus is simply quiet.
+
+---
+
+## Phase 5 — First handshake
+
+**Goal:** get one module to talk. This is the first phase with real risk.
+
+**Preconditions:** Phase 3 passed. EKA code written down. Engine off.
+
+1. Rebuild with `CONFIG_RRP38_ALLOW_TX=y`.
+2. `arm --yes`
+3. `slowinit 33` — the ISO 9141-2 standard address, and the only one that is
+   specified rather than guessed.
+
+**The confirmation signal:** on a healthy P38, when a tool successfully
+establishes communications the dash message centre displays
+**"Diagnostics Mode"**. Connect with the ignition OFF to see it. This is a
+free, zero-ambiguity confirmation that the init sequence is correct, before
+a single byte of payload has been decoded.
+
+**Exit criteria:** `slowinit` returns sync `0x55` plus two keyword bytes,
+and/or "Diagnostics Mode" appears on the dash.
+
+**If `0x55` never arrives:** try `fastinit`; try with ignition on; check the
+W1 timing the firmware reports against the 60–300 ms spec window.
+
+---
+
+## Phase 6 — Map the modules
+
+**Goal:** replace the unverified candidate address list with real data.
+
+1. `scan` — walks the candidate list (0x11, 0x12, 0x13, 0x16, 0x18, 0x1A).
+2. If that finds little, `scan -f 00 -t 3F` for a systematic sweep. Roughly
+   3 s per address, so a 64-address sweep is about 3 minutes.
+3. Record which addresses answer, and their keyword bytes — KW1/KW2 identify
+   the protocol variant the module speaks.
+
+**Exit criteria:** a verified address table. Update the list in
+`kline_console.c` and correct §9 of SESSION-NOTES.md.
+
+**Note:** scanning transmits. It is the riskiest routine operation in the
+project, because it addresses modules somewhat blindly. Do it once,
+carefully, with the EKA code to hand — not casually.
+
+---
+
+## Phase 7 — Decode the protocol
+
+**Goal:** turn bytes into meaning. The open-ended phase.
+
+1. With a module initialised, capture its responses to known stimuli.
+2. Work out the framing: header, address bytes, length encoding, and whether
+   the checksum really is a plain 8-bit sum (assumed, unconfirmed).
+3. Correlate values against things you can measure independently — coolant
+   temperature against a thermometer, RPM against the tacho, road speed
+   against GPS.
+4. Cross-check against published Nanocom/Faultmate behaviour and the forum
+   reverse-engineering work.
+
+**Exit criteria:** a documented frame format and a handful of parameters
+decoded with confidence.
+
+**This is where the project stops being an electronics job and becomes a
+reverse-engineering one.** Budget accordingly.
+
+---
+
+## Phase 8 — Application
+
+**Goal:** something useful. Options, roughly in increasing effort:
+
+- **Fault code reader** — read and clear DTCs. The most immediately useful.
+- **Data logger** — SD card or SPIFFS, timestamped captures for offline
+  analysis.
+- **Live gauge display** — reuse the OLED/display work from the esp32_clock
+  project.
+- **WiFi telemetry** — web page or MQTT, same pattern as esp32_clock.
+- **EAS diagnostics** — the P38's most failure-prone system and arguably the
+  highest-value target, if it answers.
+
+---
+
+## Parallel track — a lower-risk alternative
+
+If the goal turns out to be *a gauge display* rather than *diagnostics*,
+tapping the analogue sensors directly (oil pressure, temperatures, voltage)
+with the ESP32's ADCs is far less work and carries **no BeCM risk at all**.
+
+Worth keeping in mind if Phase 5 or 7 stalls. The two approaches are not
+mutually exclusive — sensor tapping could deliver a working display while
+K-line decoding proceeds at its own pace.
+
+---
+
+## Risk register
+
+| Risk | Likelihood | Impact | Mitigation |
+|------|-----------|--------|------------|
+| BeCM immobiliser lockout | Low | **Severe** — car will not start | EKA code recorded; two TX gates; passive-first workflow |
+| LIN transceiver's TXD timeout breaks 5-baud init | Medium | Low | Second transceiver (KKL cable) as fallback |
+| Bus is simply quiet; nothing to sniff | High | Low | Phase 3 bench test proves hardware independently |
+| GEMS framing resists decoding | Medium | Medium | Phase 8 parallel track; community resources |
+| Corroded kick-panel connectors block EAS | Medium | Low | Known failure point — inspect before blaming the circuit |
+| 12 V transient damages the ESP32 | Low | Medium | Automotive-rated buck, inline fuse, never a bare LDO |

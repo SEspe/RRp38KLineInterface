@@ -1,0 +1,54 @@
+menu "RR P38 K-Line Interface"
+
+config RRP38_KLINE_UART_PORT
+    int "UART port used for the K-line"
+    range 1 2
+    default 1
+    help
+        UART peripheral driving the K-line transceiver. UART0 is reserved
+        for the debug console, so only 1 or 2 are valid.
+
+config RRP38_KLINE_TX_GPIO
+    int "K-line TX GPIO (to transceiver TXD/D input)"
+    default 17
+
+config RRP38_KLINE_RX_GPIO
+    int "K-line RX GPIO (from transceiver RXD/R output)"
+    default 16
+
+config RRP38_LLINE_TX_GPIO
+    int "L-line TX GPIO (-1 to disable)"
+    default -1
+    help
+        Optional. ISO 9141 traditionally carries the 5-baud address on the
+        L-line as well as the K-line. Most ECUs accept K-only initialisation.
+        Set to a GPIO number to drive L in parallel with K during slow init.
+
+config RRP38_KLINE_BAUD
+    int "K-line baud rate"
+    default 10400
+
+config RRP38_ALLOW_TX
+    bool "Allow transmitting on the K-line (DANGEROUS)"
+    default n
+    help
+        When disabled the firmware is physically incapable of transmitting:
+        all init and send commands are refused at compile time and the build
+        is a pure passive listener.
+
+        Enable this ONLY once you understand the risk. Malformed traffic to
+        the P38 BeCM is a documented cause of immobiliser lockout requiring
+        the EKA code (or a BeCM reflash) to recover the vehicle.
+
+        Even with this enabled, transmission additionally requires the
+        runtime 'arm' console command.
+
+config RRP38_ECHO_STRICT
+    bool "Abort a write if the K-line echo does not match"
+    default y
+    help
+        The K-line is a single wire, so every byte transmitted is echoed
+        back on RX. A mismatch means bus contention or a wiring fault.
+        Aborting on mismatch is the safe behaviour.
+
+endmenu
