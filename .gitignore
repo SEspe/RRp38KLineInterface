@@ -7,3 +7,5 @@ dependencies.lock
 *.elf
 *.map
 captures/
+build_*/
+sdkconfig.ncv

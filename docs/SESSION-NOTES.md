@@ -190,8 +190,63 @@ the working invocation is recorded in the README and in the
 Build verified working: `RRp38KLineInterface.bin`, 185 KB, 82 % of the app
 partition free. Not yet flashed to hardware.
 
+---
+
+# Addendum — 2026-09-09
+
+## 11. NCV7329 evaluation — the TxD timeout is real
+
+A **Soldered NCV7329 LIN Transceiver Breakout** was considered. Checked
+against the [onsemi datasheet](https://www.onsemi.com/pdf/datasheet/ncv7329-d.pdf)
+rather than assumed.
+
+**`tTxD_TIMEOUT` = 14 / 25 / 46 ms (min/typ/max).**
+
+This confirms, with a number, the risk flagged generically in
+INTERFACE-MODULES.md. A 5-baud init holds the bus dominant for **200 ms per
+bit cell** — over 4× the *maximum* timeout. The transceiver would release
+the bus partway through every low bit and corrupt the address. onsemi
+themselves spec the part as "1 kbps to 20 kbps"; that lower limit *is* the
+timeout.
+
+Fast init is also marginal: 25 ms low against a 14 ms minimum.
+
+Other specs worth recording:
+
+- **Pin 2 EN must be driven high** (internal 100–650 kΩ pull-down). Without
+  it the part appears completely dead. `V_IH` = 2 V, so 3.3 V works.
+- **Pin 1 RxD is open-drain** — needs an external pull-up to 3.3 V.
+- **VBB is 5–18 V.** The bus pin is rated ±42 V, but the supply is not.
+  A jump start or load dump exceeds it; fit a TVS.
+- Internal 30 kΩ + reverse diode to VBB (slave termination). The external
+  510 Ω is still needed for K-line.
+- Pinout: 1 RxD, 2 EN, 3 NC, 4 TxD, 5 GND, 6 LIN, 7 VBB, 8 NC.
+
+**Useful discovery:** the **NCV7327** is documented by onsemi as differing
+from the NCV7329 *only* by the absence of the TxD timeout — same 8-pin SOIC,
+same pinout. It is the clean drop-in answer if a chip swap is acceptable.
+
+### Decisions added
+
+| # | Decision | Rationale |
+|---|----------|-----------|
+| 11 | Support an optional **bypass MOSFET** for init sequences | Lets timeout-limited LIN transceivers do a 5-baud init; ~€0.20 of parts; keeps the transceiver's protection on all normal traffic |
+| 12 | Add `CONFIG_RRP38_EN_GPIO` | Transceivers like the NCV7329 need EN driven high or they look dead — a silent-failure trap worth removing |
+| 13 | Verify both config paths build | The `#if` branches are mutually exclusive, so a single build only ever proves one of them |
+
+Implementation: with `CONFIG_RRP38_INIT_DRIVER_GPIO` set, the UART stays
+attached to the TX pin throughout (idle high = recessive) and the init is
+bit-banged through the MOSFET, so the two drivers never contend. With it
+unset, behaviour is unchanged — the original TX pin handover.
+
+**Gate pull-down is not optional.** A floating MOSFET gate while the ESP32
+is in reset could hold the car's diagnostic line dominant. 100 kΩ to GND.
+
 ## Sources
 
+- [onsemi NCV7329 datasheet](https://www.onsemi.com/pdf/datasheet/ncv7329-d.pdf)
+- [onsemi NCV7327 — same part without the TxD timeout](https://www.onsemi.com/pdf/datasheet/ncv7327-d.pdf)
+- [Soldered NCV7329 breakout](https://soldered.com/products/lin-transceiver-ncv7329-breakout)
 - [Nanocom NCOM05 — Range Rover P38 GEMS (Petrol to 1999)](https://www.nanocom-diagnostics.com/product/ncom05-range-rover-p38-gems-petrol-to-1999-kit)
 - [Range Rovers Forum — diagnostic socket wiring](https://www.rangerovers.net/threads/diagnostic-socket-wiring-get-help.255153/)
 - [Range Rovers Forum — serial link, BeCM to instrument cluster](https://www.rangerovers.net/threads/serial-link-becm-to-instrument-cluster-temp-fuel.325628/)

@@ -52,6 +52,48 @@ The L9637D is a purpose-built ISO 9141 K-line transceiver. Minimal circuit:
   converter; automotive rails carry transients that will kill a bare LDO.
 - Add a common ground between the ESP32 and the car before connecting K.
 
+## Bypass MOSFET — for transceivers with a TxD dominant timeout
+
+Needed when the transceiver releases the bus if TxD is held low too long.
+The onsemi NCV7329 does this after 14–46 ms, against a 200 ms bit cell in a
+5-baud init. See [INTERFACE-MODULES.md](INTERFACE-MODULES.md) for which
+parts are affected.
+
+The fix is to drive the init bits through an external MOSFET that the
+transceiver's timer knows nothing about, and hold TxD recessive meanwhile.
+Normal byte traffic is short enough to go through the transceiver as usual.
+
+```
+                                    K-line (socket pin 7)
+                                          |
+                                          |
+   ESP32 GPIO22 ──[1k]──┐              ┌──┘
+   (init driver)        │            D │
+                        ├──── gate ────┤  2N7002 / BSS138
+                      [100k]           │  (N-channel, Vds >= 60V)
+                        │            S │
+                       GND            GND
+```
+
+- **2N7002** (60 V, 115 mA) or **BSS138** (50 V, 200 mA). Either is ample —
+  pulling the K-line low through a 510 Ω pull-up to 12 V draws about 24 mA.
+- The 1 kΩ series gate resistor limits inrush; the 100 kΩ pull-down keeps
+  the MOSFET off while the ESP32 is in reset. **Do not omit the pull-down** —
+  a floating gate during boot can hold the car's diagnostic line dominant.
+- Logic is active-high: GPIO high turns the MOSFET on and pulls the bus
+  dominant. The firmware handles the inversion.
+
+Enable with:
+
+```
+CONFIG_RRP38_INIT_DRIVER_GPIO=22    # gate
+CONFIG_RRP38_EN_GPIO=21             # transceiver EN, if it has one
+```
+
+With `CONFIG_RRP38_INIT_DRIVER_GPIO` set, the firmware leaves the UART
+attached to the TX pin throughout (idle high = recessive) and bit-bangs the
+init through the MOSFET instead, so the two drivers never fight.
+
 ## Sourcing — what to buy
 
 Ranked by how little work is left for you.

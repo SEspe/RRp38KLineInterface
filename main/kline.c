@@ -38,8 +38,12 @@ static bool s_started  = false;
 static bool s_tx_armed = false;
 
 /* ------------------------------------------------------------------ */
-/* Timing helpers                                                      */
+/* Timing and bit-bang helpers                                         */
+/*                                                                     */
+/* All of this exists only to drive the init sequences, which are      */
+/* transmit-only - so in a passive build none of it is compiled.       */
 /* ------------------------------------------------------------------ */
+#if CONFIG_RRP38_ALLOW_TX
 
 /* Sleep until an absolute microsecond deadline. Uses vTaskDelay for the bulk
  * of the wait and busy-waits the last ~2ms, which keeps the 200ms bit cells
@@ -63,6 +67,7 @@ static void delay_until_us(int64_t deadline_us)
 /* rate the UART clock divider can reach, so it must be done by hand.   */
 /* ------------------------------------------------------------------ */
 
+#if CONFIG_RRP38_INIT_DRIVER_GPIO < 0
 static void tx_pin_to_gpio(void)
 {
     /* Drive the output register high *before* taking the pin, so the K-line
@@ -78,14 +83,49 @@ static void tx_pin_to_uart(void)
 {
     esp_rom_gpio_connect_out_signal(KL_TX_GPIO, KL_TX_SIG, false, false);
 }
+#endif /* CONFIG_RRP38_INIT_DRIVER_GPIO < 0 */
 
+/* Drive one init bit. level is the *bus* logic level: 0 = dominant.
+ *
+ * With a bypass driver configured, the bit is driven through an external
+ * MOSFET instead of the transceiver, because LIN parts such as the NCV7329
+ * implement a TxD dominant timeout (14/25/46 ms) that is far shorter than
+ * the 200 ms bit cell of a 5-baud init and would release the bus mid-bit.
+ * The MOSFET is active-high, so it takes the inverse of the bus level. */
 static inline void bitbang_set(int level)
 {
+#if CONFIG_RRP38_INIT_DRIVER_GPIO >= 0
+    gpio_set_level((gpio_num_t)CONFIG_RRP38_INIT_DRIVER_GPIO, level ? 0 : 1);
+#else
     gpio_set_level((gpio_num_t)KL_TX_GPIO, level);
+#endif
 #if CONFIG_RRP38_LLINE_TX_GPIO >= 0
     gpio_set_level((gpio_num_t)KL_L_GPIO, level);
 #endif
 }
+
+/* Claim the bus for bit-banging. Without a bypass driver this hands the TX
+ * pin from the UART to plain GPIO; with one, the UART keeps the pin and is
+ * simply held recessive so the two drivers never fight. */
+static void bitbang_begin(void)
+{
+#if CONFIG_RRP38_INIT_DRIVER_GPIO >= 0
+    gpio_set_level((gpio_num_t)CONFIG_RRP38_INIT_DRIVER_GPIO, 0);
+#else
+    tx_pin_to_gpio();
+#endif
+}
+
+static void bitbang_end(void)
+{
+#if CONFIG_RRP38_INIT_DRIVER_GPIO >= 0
+    gpio_set_level((gpio_num_t)CONFIG_RRP38_INIT_DRIVER_GPIO, 0);
+#else
+    tx_pin_to_uart();
+#endif
+}
+
+#endif /* CONFIG_RRP38_ALLOW_TX */
 
 /* ------------------------------------------------------------------ */
 /* Lifecycle                                                           */
@@ -123,9 +163,44 @@ esp_err_t kline_start(void)
     gpio_set_level((gpio_num_t)KL_L_GPIO, 1);
 #endif
 
+#if CONFIG_RRP38_EN_GPIO >= 0
+    /* Transceivers such as the NCV7329 idle in sleep mode with an internal
+     * pull-down on EN, and look completely dead until it is driven high. */
+    gpio_config_t encfg = {
+        .pin_bit_mask = 1ULL << CONFIG_RRP38_EN_GPIO,
+        .mode         = GPIO_MODE_OUTPUT,
+        .pull_up_en   = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type    = GPIO_INTR_DISABLE,
+    };
+    ESP_ERROR_CHECK(gpio_config(&encfg));
+    gpio_set_level((gpio_num_t)CONFIG_RRP38_EN_GPIO, 1);
+    vTaskDelay(pdMS_TO_TICKS(2));       /* tINIT_NORM before the TX is usable */
+#endif
+
+#if CONFIG_RRP38_INIT_DRIVER_GPIO >= 0
+    /* Bypass MOSFET for the init sequences. Off (bus recessive) at boot. */
+    gpio_config_t dcfg = {
+        .pin_bit_mask = 1ULL << CONFIG_RRP38_INIT_DRIVER_GPIO,
+        .mode         = GPIO_MODE_OUTPUT,
+        .pull_up_en   = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_ENABLE,
+        .intr_type    = GPIO_INTR_DISABLE,
+    };
+    ESP_ERROR_CHECK(gpio_config(&dcfg));
+    gpio_set_level((gpio_num_t)CONFIG_RRP38_INIT_DRIVER_GPIO, 0);
+#endif
+
     s_started = true;
     ESP_LOGI(TAG, "K-line up: UART%d TX=%d RX=%d @ %d baud",
              CONFIG_RRP38_KLINE_UART_PORT, KL_TX_GPIO, KL_RX_GPIO, KL_BAUD);
+#if CONFIG_RRP38_EN_GPIO >= 0
+    ESP_LOGI(TAG, "transceiver EN on GPIO%d (driven high)", CONFIG_RRP38_EN_GPIO);
+#endif
+#if CONFIG_RRP38_INIT_DRIVER_GPIO >= 0
+    ESP_LOGI(TAG, "init bypass driver on GPIO%d (TxD timeout workaround)",
+             CONFIG_RRP38_INIT_DRIVER_GPIO);
+#endif
 #if !CONFIG_RRP38_ALLOW_TX
     ESP_LOGW(TAG, "built PASSIVE - transmit disabled at compile time");
 #endif
@@ -272,7 +347,7 @@ esp_err_t kline_slow_init(uint8_t addr, kline_init_result_t *out)
 
     /* Bit-bang the address at 5 baud: 200ms per bit,
      * start(0) + 8 data bits LSB first + stop(1). */
-    tx_pin_to_gpio();
+    bitbang_begin();
 
     int64_t t = esp_timer_get_time();
 
@@ -291,7 +366,7 @@ esp_err_t kline_slow_init(uint8_t addr, kline_init_result_t *out)
     delay_until_us(t);
 
     int64_t addr_done_us = esp_timer_get_time();
-    tx_pin_to_uart();
+    bitbang_end();
 
     /* The transceiver echoed our slow bits back into the UART as garbage. */
     kline_flush_rx();
@@ -375,7 +450,7 @@ esp_err_t kline_fast_init(void)
     kline_flush_rx();
     vTaskDelay(pdMS_TO_TICKS(KLINE_W5_MS));
 
-    tx_pin_to_gpio();
+    bitbang_begin();
     int64_t t = esp_timer_get_time();
     bitbang_set(0);
     t += 25000;
@@ -383,7 +458,7 @@ esp_err_t kline_fast_init(void)
     bitbang_set(1);
     t += 25000;
     delay_until_us(t);                    /* 25ms high */
-    tx_pin_to_uart();
+    bitbang_end();
 
     kline_flush_rx();
     ESP_LOGI(TAG, "fast init wake-up done - send StartCommunication now");

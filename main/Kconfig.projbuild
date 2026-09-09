@@ -24,6 +24,38 @@ config RRP38_LLINE_TX_GPIO
         L-line as well as the K-line. Most ECUs accept K-only initialisation.
         Set to a GPIO number to drive L in parallel with K during slow init.
 
+config RRP38_EN_GPIO
+    int "Transceiver enable (EN/CS/SLP) GPIO (-1 if not needed)"
+    default -1
+    help
+        Many LIN transceivers idle in sleep mode and need an enable pin
+        driven high before they will do anything. The onsemi NCV7329 is one:
+        pin 2 (EN) has an internal pull-down, so without this the part looks
+        completely dead.
+
+        The L9637D does not need this - leave at -1.
+
+config RRP38_INIT_DRIVER_GPIO
+    int "Bypass driver GPIO for slow/fast init (-1 to disable)"
+    default -1
+    help
+        Workaround for LIN transceivers that implement a TxD dominant
+        timeout. The onsemi NCV7329 releases the bus after tTxD_TIMEOUT
+        (14/25/46 ms min/typ/max), but a 5-baud init holds the bus dominant
+        for 200 ms per bit cell - so the address gets corrupted.
+
+        Set this to a GPIO driving an N-channel MOSFET (2N7002, BSS138)
+        with drain on the K-line and source to ground. Init bits are then
+        driven through the MOSFET, bypassing the transceiver's timeout,
+        while TxD is held recessive. Normal byte traffic still goes through
+        the transceiver.
+
+        Logic is active-high: GPIO high turns the MOSFET on and pulls the
+        bus dominant.
+
+        Not needed for the L9637D or the NCV7327 (same part as the NCV7329
+        but without the timeout).
+
 config RRP38_KLINE_BAUD
     int "K-line baud rate"
     default 10400

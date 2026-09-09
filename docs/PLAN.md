@@ -46,12 +46,23 @@ clean, before any hardware exists.
 **Goal:** get two independent transceivers so hardware faults and protocol
 faults can be told apart.
 
-- [ ] Order a **LIN transceiver breakout** (MCP2004 or TJA1020)
+- [ ] Order a **LIN transceiver breakout** (MCP2004, TJA1020, or the
+      NCV7329 board already under consideration)
 - [ ] Order a **KKL 409.1 cable, FTDI FT232RL version**
 - [ ] Order the supporting parts: automotive 12 V→5 V buck, 510 Ω, 100 nF ×2,
-      1 A inline fuse
+      1 A inline fuse, TVS on the 12 V rail
+- [ ] **If using the NCV7329:** a 2N7002 or BSS138, 1 kΩ and 100 kΩ for the
+      bypass MOSFET, and a 4.7 kΩ RxD pull-up if the board lacks one.
+      Alternatively an **NCV7327** to swap in — same footprint, no TxD
+      timeout
 - [ ] Optionally, a bare L9637D for a permanent build later
 - [ ] **Find and write down the EKA code for the car**
+
+**Transceiver caveat:** LIN parts with a TxD dominant timeout cannot do a
+5-baud init unmodified. The NCV7329 was measured against its datasheet at
+14/25/46 ms versus a 200 ms bit cell. The firmware supports a bypass MOSFET
+(`CONFIG_RRP38_INIT_DRIVER_GPIO`) to work around this — see
+[INTERFACE-MODULES.md](INTERFACE-MODULES.md) and [HARDWARE.md](HARDWARE.md).
 
 Full reasoning in [INTERFACE-MODULES.md](INTERFACE-MODULES.md).
 

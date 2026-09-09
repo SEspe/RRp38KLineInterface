@@ -59,6 +59,17 @@ static int cmd_status(int argc, char **argv)
 #else
     printf("  L-line GPIO   : disabled\n");
 #endif
+#if CONFIG_RRP38_EN_GPIO >= 0
+    printf("  Transceiver EN: GPIO%d (high)\n", CONFIG_RRP38_EN_GPIO);
+#else
+    printf("  Transceiver EN: not used\n");
+#endif
+#if CONFIG_RRP38_INIT_DRIVER_GPIO >= 0
+    printf("  Init bypass   : GPIO%d (TxD timeout workaround active)\n",
+           CONFIG_RRP38_INIT_DRIVER_GPIO);
+#else
+    printf("  Init bypass   : none (init driven through transceiver)\n");
+#endif
     printf("  Baud          : %d\n", CONFIG_RRP38_KLINE_BAUD);
 #if CONFIG_RRP38_ALLOW_TX
     printf("  TX compiled   : YES\n");

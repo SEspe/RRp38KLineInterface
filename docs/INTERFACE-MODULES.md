@@ -89,6 +89,48 @@ ESP32 GND    ──> GND  (common ground with the car)
 **The 5-baud caveat is the real risk with this option.** Everything else is
 straightforward.
 
+### Worked example — Soldered NCV7329 breakout (evaluated 2026-09-09)
+
+Checked against the [onsemi NCV7329 datasheet](https://www.onsemi.com/pdf/datasheet/ncv7329-d.pdf).
+This is the concrete case of the caveat above.
+
+**Verdict: usable for sniffing; needs a bypass MOSFET for the init sequences.**
+
+| Parameter | Value | Consequence |
+|-----------|-------|-------------|
+| `tTxD_TIMEOUT` | **14 / 25 / 46 ms** (min/typ/max) | **Blocks 5-baud init.** A bit cell is 200 ms — over 4× the *maximum* timeout. The bus is released mid-bit and the address is corrupted |
+| Transmission rate | 1 kbps – 20 kbps | The 1 kbps *lower* limit is the timeout, stated outright by onsemi |
+| Pin 1 RxD | Open-drain output | **Needs an external pull-up to 3.3 V.** Check whether the breakout fits one; if not, ~4.7 kΩ |
+| Pin 2 EN | Normal mode when high; internal 100–650 kΩ pull-down | **Must be driven high** or the part looks dead. `V_IH` = 2 V, so a 3.3 V GPIO works |
+| Pin 4 TxD | `V_IH` 2 V, `V_IL` 0.8 V, internal 50–325 kΩ pull-down | 3.3 V logic fine |
+| Pin 7 VBB | 5–18 V | **18 V ceiling.** Fine at 12–14.4 V nominal; a jump start or load dump will exceed it. Fit a TVS |
+| LIN pin | Internal 30 kΩ + reverse-protection diode to VBB | Slave termination. Still fit the external 510 Ω for K-line |
+| Bus rating | ±42 V | The bus pin itself is robust; it is VBB that is the weak point |
+
+Pinout: 1 RxD, 2 EN, 3 NC, 4 TxD, 5 GND, 6 LIN, 7 VBB, 8 NC.
+
+**Fast init is also marginal** — it holds the bus low for 25 ms, against a
+14 ms *minimum* timeout. Do not rely on it either.
+
+#### Three fixes, in order of preference
+
+**a) Bypass MOSFET (recommended, ~€0.20).** Drive the init bits through an
+external MOSFET, bypassing the transceiver's timeout entirely, while TxD is
+held recessive. Normal byte traffic still goes through the transceiver, so
+its protection and slope control are preserved on everything except the
+init. RX path untouched. Circuit in [HARDWARE.md](HARDWARE.md).
+
+Firmware support is built in — set `CONFIG_RRP38_INIT_DRIVER_GPIO` to the
+gate GPIO, and `CONFIG_RRP38_EN_GPIO` to whatever drives EN.
+
+**b) Swap the chip for an NCV7327.** onsemi state it *"differs from NCV7329
+only by absence of TxD Timeout function"* — same 8-pin SOIC, same pinout.
+Desolder and swap if you are comfortable with SOIC rework, or use it in a
+board of your own. This is the cleanest electrical answer.
+
+**c) Use the board for RX only** and transmit through a second transceiver
+(the gutted KKL cable). Works, but doubles the wiring.
+
 ---
 
 ## Option 2 — gut a KKL 409.1 cable (cheapest, most practical)
@@ -180,7 +222,18 @@ later; it is cheap enough to buy speculatively.
 | 510 Ω resistor | K-line pull-up to 12 V; some modules are marginal without it |
 | 100 nF ceramics | Decoupling on Vcc and Vs |
 | Inline fuse, 1 A | On the 12 V tap. Non-negotiable — this is a permanent-live pin |
+| TVS diode, ~16–24 V standoff | Protects the transceiver's VBB pin. The NCV7329 tops out at 18 V |
 | J1962 breakout or spare socket | Lets you bench-test without the car |
+
+If using a transceiver with a TxD dominant timeout (NCV7329 and most LIN
+parts), add:
+
+| Item | Why |
+|------|-----|
+| 2N7002 or BSS138 N-channel MOSFET | Bypass driver for the init sequences |
+| 1 kΩ resistor | Gate series resistor |
+| 100 kΩ resistor | Gate pull-down. **Not optional** — a floating gate during ESP32 reset could hold the car's diagnostic line dominant |
+| 4.7 kΩ resistor | RxD pull-up, if the breakout does not fit one (the NCV7329's RxD is open-drain) |
 
 ## Bench test before the car
 
