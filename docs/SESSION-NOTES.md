@@ -291,6 +291,55 @@ the EN pin maps to SLP_N and the bypass MOSFET covers slow init. The file
 name is now a misnomer; the config it holds is the general
 "timeout-limited LIN transceiver" case.
 
+## 13. Where this stands — stopping point, 2026-09-09
+
+**Everything that can be done without hardware is done.** Nothing is
+blocked on a decision; the project is waiting on a delivery.
+
+**Settled:**
+
+- Physical layer confirmed: ISO 9141 K-line, 10400 baud, socket pin 7.
+  No CAN on this car.
+- Firmware transport, both init sequences, sniffer, scanner and console
+  build clean against ESP-IDF v6.0.1. Never flashed.
+- Transceiver chosen and datasheet-verified: **NXP TJA1021**, ordered
+  2026-09-09. The TxD-timeout workaround it needs is already in the
+  firmware, and `sdkconfig.ncv.defaults` is the config for it as-is.
+- Both remaining unknowns are hardware ones, and both have a written
+  check: what the module's RxD pull-up connects to, and whether the chip
+  is a `/10` or a `/20`.
+
+**Waiting on:**
+
+- The TJA1021 module itself.
+- A KKL 409.1 cable — still worth buying, for the J1962 connector and as a
+  second, independent transceiver.
+- Bypass MOSFET parts (2N7002/BSS138, 1 kΩ, 100 kΩ), 510 Ω, TVS, buck
+  converter, inline fuse.
+- **The EKA code.** This is the only outstanding item that costs nothing
+  and is not gated on a delivery. Do it before the parts arrive.
+
+**First three moves when the parts land**, in order — all of Phase 3, none
+of them near the car:
+
+1. Before wiring anything to the ESP32, check where the module's RxD
+   pull-up goes. If it lands on an onboard 5 V rail, lift it and re-pull to
+   3.3 V. This is the one way the board can damage the ESP32.
+2. Flash, run `status`, and confirm the reported pin mapping matches the
+   wiring as built.
+3. Bench supply at 12 V, K pulled up through 510 Ω, nothing else on the
+   bus: `arm --yes` then `send 55`. The echo is inherent to a half-duplex
+   line, so a clean echo proves level shifting, grounding, pull-up and baud
+   rate in one step.
+
+Only after that does the car get involved, and the first thing run there is
+`sniff`, which cannot transmit.
+
+**One open question worth settling on the bench, not in the car:** whether
+fast init genuinely survives the TJA1021's 27 ms guaranteed minimum in
+practice. The datasheet says it must, with 2 ms of margin. If it does, slow
+init through the bypass MOSFET is a fallback rather than the main path.
+
 ## Sources
 
 - [NXP TJA1021 datasheet, rev. 9](https://www.nxp.com/docs/en/data-sheet/TJA1021.pdf)

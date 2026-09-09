@@ -5,7 +5,9 @@ is deliberate: every phase either proves the hardware or narrows the
 protocol, so that when something fails you always know which of the two it
 was.
 
-**Status: Phase 1 complete. Phase 2 blocked on hardware purchase.**
+**Status: Phase 1 complete. Phase 2 in progress — TJA1021 module ordered
+2026-09-09, awaiting delivery. Nothing is blocked on further decisions; the
+next move is bench-testing when the parts land.**
 
 ---
 
