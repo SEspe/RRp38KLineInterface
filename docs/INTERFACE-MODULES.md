@@ -131,6 +131,65 @@ board of your own. This is the cleanest electrical answer.
 **c) Use the board for RX only** and transmit through a second transceiver
 (the gutted KKL cable). Works, but doubles the wiring.
 
+### Worked example — TJA1021 TTL-to-LIN module (ordered 2026-09-09)
+
+The part actually bought: a generic *"TTL to LIN Bus TJA1021 Module /
+Automotive Bus"* breakout. Checked against the
+[NXP TJA1021 datasheet, rev. 9](https://www.nxp.com/docs/en/data-sheet/TJA1021.pdf).
+
+**Verdict: the best of the LIN options here.** NXP list **"K-line
+compatible"** as an explicit feature bullet (§2.1), not an inference. The
+TxD timeout still blocks 5-baud init, but it is long enough that **fast
+init works through the transceiver unmodified** — which the NCV7329's does
+not.
+
+| Parameter | Value | Consequence |
+|-----------|-------|-------------|
+| `tto(dom)TXD` | **27 / 55 / 90 ms** (min/typ/max) | **Blocks 5-baud init** — a bit cell is 200 ms. But the datasheet guarantees the timer *will not* trigger before `tmin`, so the 25 ms low of a **fast init is safe**, with 2 ms of margin |
+| Baud rate | 1 kBd – 20 kBd | As with the NCV7329, the 1 kBd *lower* limit is the timeout |
+| Variants | `T/10`, `AT` = low slope, optimised for **10.4 kBd** (SAE J2602); `T/20`, `BT` = 20 kBd | **`/10` is the exactly-right variant for a 10400 baud K-line.** Read the chip marking; cheap modules fit whichever was in the bin |
+| Pin 1 RXD | Open-drain output, `IOL` 1.5 mA at 0.4 V | **Needs an external pull-up.** The chip has *no logic supply pin at all*, so the pull-up rail *is* the logic level — pull it to **3.3 V** and the ESP32 sees clean 3.3 V |
+| Pin 2 SLP_N | Sleep when low; internal 140–1200 kΩ pull-down; `V_IH` 2 V | **Must be driven high**, and Normal mode is entered **on the rising edge**. A 3.3 V GPIO works. This is `CONFIG_RRP38_EN_GPIO` |
+| Pin 3 WAKE_N | Local wake-up, active low; internal pull-up of only **1–30 µA** to VBAT | Tie to VBAT if the board leaves it floating — 12 µA typ is weak enough for noise to fake a local wake-up |
+| Pin 4 TXD | `V_IH` 2 V, `V_IL` 0.8 V, internal 140–1200 kΩ pull-down | 3.3 V logic fine. Note: entering Normal mode **with TXD low leaves the transmitter off** until TXD goes high — so bring SLP_N high *after* the UART owns the TX pin |
+| Pin 7 VBAT | Limiting **−0.3 to +40 V**; specified 5.5–27 V; transmitter guaranteed only to 18 V | Far more headroom than the NCV7329's 18 V ceiling. Still fit a TVS, but a jump start will not destroy it |
+| Pin 8 INH | Inhibit output, high in Normal mode, 20–50 Ω to VBAT | Convenient source for the master pull-up — NXP's own recommendation is a resistor + series diode from INH or VBAT to LIN |
+| LIN pin | Limiting ±40 V; `IBUS_LIM` 40–100 mA; internal responder termination 20/30/47 kΩ to VBAT | Bus pin is robust. 24 mA through a 510 Ω pull-up is well inside the driver limit. The external 510 Ω is still needed for K-line |
+| ESD | ±6 kV IEC 61000-4-2 on LIN, VBAT, WAKE_N | — |
+
+Pinout (SO8): 1 RXD, 2 SLP_N, 3 WAKE_N, 4 TXD, 5 GND, 6 LIN, 7 VBAT,
+8 INH. Pin-to-pin compatible with the TJA1020 and MC33662(B), so a module
+sold as "TJA1020/TJA1021" is wired the same either way.
+
+#### What this means for the firmware
+
+The existing config covers it exactly — `sdkconfig.ncv.defaults` applies
+verbatim:
+
+```
+CONFIG_RRP38_EN_GPIO=21             # -> SLP_N (pin 2)
+CONFIG_RRP38_INIT_DRIVER_GPIO=22    # -> bypass MOSFET gate, for slow init
+```
+
+Still needed: the bypass MOSFET (2N7002/BSS138 + 1 kΩ + 100 kΩ) for
+**5-baud init only**, and a 4.7 kΩ RXD pull-up **to 3.3 V** if the board
+does not fit one. Fast init needs neither.
+
+#### What to check when it arrives
+
+- **What the RXD pull-up goes to.** If the module pulls RXD up to an
+  onboard 5 V rail, that 5 V lands on an ESP32 pin rated 3.6 V absolute
+  max. Lift the resistor and pull RXD to 3.3 V instead, or fit a divider.
+  This is the one way this board can damage the ESP32.
+- **The chip marking** — `/10` or `/20`. Either works at 10400 baud; `/10`
+  is wave-shaped for exactly this rate.
+- **Whether SLP_N is broken out** or strapped high on the board. If it is
+  strapped high, set `CONFIG_RRP38_EN_GPIO=-1` and save a GPIO.
+- **Whether a master pull-up is fitted**, and its value. Typical LIN master
+  boards use 1 kΩ; K-line wants 510 Ω. Adding 1 kΩ in parallel with an
+  existing 1 kΩ gives 500 Ω, which is close enough.
+- **Whether WAKE_N is tied to VBAT.** If it floats, tie it high.
+
 ---
 
 ## Option 2 — gut a KKL 409.1 cable (cheapest, most practical)
@@ -197,6 +256,10 @@ protection. Automotive rails will eventually find the weakness.
 
 ## Recommendation
 
+**Status:** the LIN half of this is now ordered — a **TJA1021** TTL-to-LIN
+module (see the worked example above). The KKL cable is still worth buying
+for the connector and as the second, independent transceiver.
+
 **Buy both a KKL 409.1 cable and a LIN transceiver breakout.** Under €20
 together.
 
@@ -222,18 +285,18 @@ later; it is cheap enough to buy speculatively.
 | 510 Ω resistor | K-line pull-up to 12 V; some modules are marginal without it |
 | 100 nF ceramics | Decoupling on Vcc and Vs |
 | Inline fuse, 1 A | On the 12 V tap. Non-negotiable — this is a permanent-live pin |
-| TVS diode, ~16–24 V standoff | Protects the transceiver's VBB pin. The NCV7329 tops out at 18 V |
+| TVS diode, ~16–24 V standoff | Protects the transceiver's supply pin. The NCV7329 tops out at 18 V; the TJA1021 survives 40 V but only guarantees transmission to 18 V |
 | J1962 breakout or spare socket | Lets you bench-test without the car |
 
-If using a transceiver with a TxD dominant timeout (NCV7329 and most LIN
-parts), add:
+If using a transceiver with a TxD dominant timeout (NCV7329, TJA1021, and
+most other LIN parts), add:
 
 | Item | Why |
 |------|-----|
 | 2N7002 or BSS138 N-channel MOSFET | Bypass driver for the init sequences |
 | 1 kΩ resistor | Gate series resistor |
 | 100 kΩ resistor | Gate pull-down. **Not optional** — a floating gate during ESP32 reset could hold the car's diagnostic line dominant |
-| 4.7 kΩ resistor | RxD pull-up, if the breakout does not fit one (the NCV7329's RxD is open-drain) |
+| 4.7 kΩ resistor | RxD pull-up, if the breakout does not fit one. Open-drain on both the NCV7329 and the TJA1021 — pull it to **3.3 V**, not 5 V |
 
 ## Bench test before the car
 

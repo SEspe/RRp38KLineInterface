@@ -52,12 +52,61 @@ The L9637D is a purpose-built ISO 9141 K-line transceiver. Minimal circuit:
   converter; automotive rails carry transients that will kill a bare LDO.
 - Add a common ground between the ESP32 and the car before connecting K.
 
+## Reference circuit — TJA1021 (the module actually ordered)
+
+NXP list "K-line compatible" as a feature of the TJA1021. It has no logic
+supply pin: RXD is open-drain, so **the rail you pull RXD up to is the logic
+level**. Pull it to 3.3 V and the ESP32 sees 3.3 V, with no divider needed.
+
+```
+                       +12V (pin 16, fused 1A)
+                            |
+                            +--[510R]--+          3V3
+                            |          |           |
+   ESP32                 +--+--+       |         [4k7]
+   GPIO16 (RX) <---------| RXD  |      |           |
+   GPIO21 (EN) --------->| SLP_N|      |           |
+              +12V ----->| WAKE_N   LIN|-----+-----> pin 7  (K-line)
+   GPIO17 (TX) --------->| TXD  |      |
+   GND        ---------->| GND  |   VBAT|<---------- +12V
+                         |      |    INH|--- (n/c)
+                         +------+
+```
+
+- **RXD (pin 1) is open-drain — it needs that 4k7 pull-up to 3.3 V.**
+  If the module already fits one, check what rail it goes to. A pull-up to
+  an onboard 5 V rail puts 5 V on an ESP32 pin rated 3.6 V absolute maximum;
+  lift it and re-pull to 3.3 V. This is the one way this board can damage
+  the ESP32.
+- **SLP_N (pin 2) must be driven high** — internal 140–1200 kΩ pull-down,
+  and Normal mode is entered on the *rising edge*. That is
+  `CONFIG_RRP38_EN_GPIO`. `V_IH` is 2 V, so 3.3 V is fine. If the module
+  straps it high already, set the config to `-1`.
+- **WAKE_N (pin 3) to +12V.** Its internal pull-up is only 1–30 µA; left
+  floating, noise can fake a local wake-up.
+- The firmware brings SLP_N high *after* the UART owns the TX pin, which
+  matters: entering Normal mode with TXD low leaves the transmitter off.
+- **INH (pin 8)** is an inhibit output that goes high in Normal mode. Not
+  used here; NXP's own master-mode suggestion is a resistor and series diode
+  from INH (or VBAT) to LIN, which is what the 510R does.
+- Internal responder termination is 20/30/47 kΩ to VBAT — far too weak for
+  K-line. The external 510R is still required.
+- VBAT survives −0.3 to +40 V, but transmission is only guaranteed to 18 V.
+  A TVS is still worth fitting; it is no longer life-or-death for the part.
+- **Slow init needs the bypass MOSFET below. Fast init does not** — see
+  the TXD timeout note.
+
+
 ## Bypass MOSFET — for transceivers with a TxD dominant timeout
 
 Needed when the transceiver releases the bus if TxD is held low too long.
-The onsemi NCV7329 does this after 14–46 ms, against a 200 ms bit cell in a
-5-baud init. See [INTERFACE-MODULES.md](INTERFACE-MODULES.md) for which
-parts are affected.
+The onsemi NCV7329 does this after 14–46 ms and the NXP TJA1021 after
+27–90 ms, against a 200 ms bit cell in a 5-baud init. See
+[INTERFACE-MODULES.md](INTERFACE-MODULES.md) for which parts are affected.
+
+On the TJA1021 this is only needed for **slow init** — its 27 ms guaranteed
+minimum is longer than the 25 ms low of a fast init, so fast init goes
+through the transceiver normally.
 
 The fix is to drive the init bits through an external MOSFET that the
 transceiver's timer knows nothing about, and hold TxD recessive meanwhile.
@@ -170,6 +219,7 @@ You do not need the vehicle to prove the firmware works:
 
 ## Sources
 
+- [NXP TJA1021 datasheet, rev. 9](https://www.nxp.com/docs/en/data-sheet/TJA1021.pdf)
 - [NXP AN00093 — TJA1020 LIN transceiver application note](https://www.nxp.com/docs/en/application-note/AN00093.pdf)
 - [ST L9637 datasheet](https://www.st.com/resource/en/datasheet/l9637.pdf)
 - [MikroElektronika ISO 9141 Click](https://www.mikroe.com/iso-9141-click)

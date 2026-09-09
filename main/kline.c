@@ -88,9 +88,10 @@ static void tx_pin_to_uart(void)
 /* Drive one init bit. level is the *bus* logic level: 0 = dominant.
  *
  * With a bypass driver configured, the bit is driven through an external
- * MOSFET instead of the transceiver, because LIN parts such as the NCV7329
- * implement a TxD dominant timeout (14/25/46 ms) that is far shorter than
- * the 200 ms bit cell of a 5-baud init and would release the bus mid-bit.
+ * MOSFET instead of the transceiver, because LIN parts implement a TxD
+ * dominant timeout (NCV7329: 14/25/46 ms, TJA1021: 27/55/90 ms) that is far
+ * shorter than the 200 ms bit cell of a 5-baud init and would release the
+ * bus mid-bit.
  * The MOSFET is active-high, so it takes the inverse of the bus level. */
 static inline void bitbang_set(int level)
 {
@@ -164,8 +165,11 @@ esp_err_t kline_start(void)
 #endif
 
 #if CONFIG_RRP38_EN_GPIO >= 0
-    /* Transceivers such as the NCV7329 idle in sleep mode with an internal
-     * pull-down on EN, and look completely dead until it is driven high. */
+    /* Transceivers such as the NCV7329 (EN) and TJA1021 (SLP_N) idle in
+     * sleep mode with an internal pull-down on that pin, and look completely
+     * dead until it is driven high. Raised after uart_set_pin() on purpose:
+     * the TJA1021 leaves its transmitter off if TXD is low when it enters
+     * normal mode. */
     gpio_config_t encfg = {
         .pin_bit_mask = 1ULL << CONFIG_RRP38_EN_GPIO,
         .mode         = GPIO_MODE_OUTPUT,

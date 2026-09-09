@@ -242,8 +242,58 @@ unset, behaviour is unchanged — the original TX pin handover.
 **Gate pull-down is not optional.** A floating MOSFET gate while the ESP32
 is in reset could hold the car's diagnostic line dominant. 100 kΩ to GND.
 
+## 12. TJA1021 ordered — the timeout is shorter than feared, but still there
+
+A generic **TTL-to-LIN TJA1021 module** was ordered on 2026-09-09. Checked
+against the [NXP datasheet, rev. 9](https://www.nxp.com/docs/en/data-sheet/TJA1021.pdf)
+the same way the NCV7329 was.
+
+**`tto(dom)TXD` = 27 / 55 / 90 ms (min/typ/max).**
+
+Roughly double the NCV7329's numbers, and the difference is decisive in one
+place. The datasheet states the timer "will not be triggered before `tmin`",
+so:
+
+- **Slow init still fails.** 200 ms per bit cell against a 90 ms maximum.
+  The bypass MOSFET is required, exactly as for the NCV7329.
+- **Fast init now works through the transceiver.** It holds the bus low for
+  25 ms, and 27 ms is guaranteed. 2 ms of margin is thin but it is a
+  guaranteed minimum, not a typical. On the NCV7329 the same 25 ms sat
+  *above* a 14 ms minimum, so it was unusable.
+
+The other reason to prefer this part: NXP list **"K-line compatible"** as an
+explicit feature bullet in §2.1 of the datasheet. Same standing as the
+TJA1020 application note already cited, but on the exact part in hand.
+
+Other specs worth recording:
+
+- **No logic supply pin exists.** RXD is open-drain, so the pull-up rail
+  *is* the logic level — pull it to 3.3 V and the ESP32 needs no divider.
+  The corollary is the one real hazard: if the module fits its own pull-up
+  to an onboard 5 V rail, that is 5 V into a 3.6 V-max ESP32 pin.
+- **Pin 2 SLP_N must be driven high**, and Normal mode is entered on the
+  *rising edge* (internal 140–1200 kΩ pull-down). `CONFIG_RRP38_EN_GPIO`
+  already does this. Note [4] adds that entering Normal with TXD low leaves
+  the transmitter off — `kline_start()` happens to get this right, since it
+  configures the UART before raising EN.
+- **Pin 3 WAKE_N** has only a 1–30 µA pull-up. Tie it to VBAT.
+- **VBAT: −0.3 to +40 V limiting**, specified to 27 V, transmitter
+  guaranteed to 18 V. A big improvement on the NCV7329's hard 18 V ceiling.
+- Responder termination 20/30/47 kΩ to VBAT — still needs the external 510 Ω.
+- Pinout: 1 RXD, 2 SLP_N, 3 WAKE_N, 4 TXD, 5 GND, 6 LIN, 7 VBAT, 8 INH.
+  Pin-to-pin compatible with the TJA1020 and MC33662(B).
+- **Variants matter slightly:** `T/10` and `AT` are wave-shaped for
+  10.4 kBd (SAE J2602); `T/20` and `BT` for 20 kBd. Either works at 10400,
+  but `/10` is the exact fit. Read the chip marking on arrival.
+
+**No firmware change needed.** `sdkconfig.ncv.defaults` applies verbatim —
+the EN pin maps to SLP_N and the bypass MOSFET covers slow init. The file
+name is now a misnomer; the config it holds is the general
+"timeout-limited LIN transceiver" case.
+
 ## Sources
 
+- [NXP TJA1021 datasheet, rev. 9](https://www.nxp.com/docs/en/data-sheet/TJA1021.pdf)
 - [onsemi NCV7329 datasheet](https://www.onsemi.com/pdf/datasheet/ncv7329-d.pdf)
 - [onsemi NCV7327 — same part without the TxD timeout](https://www.onsemi.com/pdf/datasheet/ncv7327-d.pdf)
 - [Soldered NCV7329 breakout](https://soldered.com/products/lin-transceiver-ncv7329-breakout)
