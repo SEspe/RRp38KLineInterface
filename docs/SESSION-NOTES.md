@@ -438,6 +438,53 @@ Three resistance readings with the board unpowered:
 Then the bypass wiring, then §13's moves 2 and 3 unchanged. The EKA code is
 still outstanding.
 
+## 15. Where this stands — stopping point, 2026-09-30
+
+**The transceiver is in hand, and it is the right chip on the wrong
+board.** A genuine NXP TJA1021T/20 sits behind an APM32F103 LIN
+protocol converter, and the plan to get at it directly is decided and
+documented. Nothing is blocked on a decision; the next steps are bench
+work.
+
+**Settled this session:**
+
+- Board identified from photos: Geehy APM32F103C8T6 MCU, NXP TJA1021T/20,
+  3.3 V LDO. The seller's description confirms a LIN-master protocol
+  converter with no documented raw mode.
+- Approach: hold the MCU in reset (`RESET` pad to GND) and wire the ESP32
+  to TJA1021 pins 1, 2, 4, with 1 kΩ on 2 and 4 (§14, decisions 14–16).
+- Pin 1 location confirmed from the package marking. Annotated photo at
+  `docs/images/tja1021-module-pins.jpg`.
+- The 5 V-on-RXD hazard from §13 is largely gone: the board's logic is
+  3.3 V throughout.
+- The unpowered LIN–VCC reading (~10 MΩ) cannot find a diode-isolated
+  master pull-up; a powered 1 kΩ-load test replaces it.
+- HARDWARE.md now has a full connection reference: every wire, what it
+  carries and why, including VBAT, the bypass MOSFET and the bench setup.
+- Side note: a CJMCU-230 is also on hand. It is an SN65HVD230 CAN
+  transceiver, unusable here for the reasons in §2 — kept for a future CAN
+  project.
+
+**Next moves, in order** — all bench, none near the car:
+
+1. **Powered master pull-up test** (§14 item 3, HARDWARE.md): 12 V on
+   `VCC`, measure `LIN`, then again with 1 kΩ `LIN`→`GND`. Decides
+   between adding 1 kΩ or the full 510 Ω.
+2. **Unpowered checks:** pin 5 ↔ `GND` terminal continuity; pin 1 ↔ `3V3`
+   header resistance (if open, fit 4.7 kΩ RXD→3.3 V).
+3. **Bypass wiring:** `RESET`→GND, GPIO17→pin 4 via 1 kΩ, GPIO21→pin 2 via
+   1 kΩ, GPIO16→pin 1, common GND.
+4. Then §13's moves 2 and 3 unchanged: flash, `status`, then `arm --yes`
+   and `send 55` for the echo test.
+
+**Still waiting on:** bypass MOSFET parts (2N7002/BSS138, 1 kΩ, 100 kΩ),
+510 Ω, TVS, buck converter, inline fuse; the KKL 409.1 cable; and **the
+EKA code**, still the one outstanding item that costs nothing.
+
+**Still open from §13:** whether fast init genuinely survives the
+TJA1021's 27 ms guaranteed minimum. Settle it on the bench once the echo
+test passes.
+
 ## Sources
 
 - [NXP TJA1021 datasheet, rev. 9](https://www.nxp.com/docs/en/data-sheet/TJA1021.pdf)
