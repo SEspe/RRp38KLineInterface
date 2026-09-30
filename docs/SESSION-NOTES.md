@@ -340,6 +340,104 @@ fast init genuinely survives the TJA1021's 27 ms guaranteed minimum in
 practice. The datasheet says it must, with 2 ms of margin. If it does, slow
 init through the bypass MOSFET is a fallback rather than the main path.
 
+---
+
+# Addendum — 2026-09-30
+
+## 14. The TJA1021 module arrived — and has an MCU on it
+
+The *"TTL to LIN Bus TJA1021 Module / Automotive Bus U7X54911"* arrived.
+Photos of both sides showed a 48-pin chip beside the SO8, which changes the
+plan: **this is a UART-to-LIN protocol converter, not a transceiver
+breakout.**
+
+Identified from the package markings:
+
+- **MCU: Geehy APM32F103C8T6**, an STM32F103C8T6 clone, on a 3.3 V LDO fed
+  from the 12 V terminal. Programming header `3V3 / TX / RX / GND` and a
+  `RESET` pad are broken out.
+- **Transceiver: NXP TJA1021T/20** — marking *NXP / 1021T/20 / HNNRBA /
+  B321*. Genuine NXP, and the 20 kBd slope variant rather than `/10`; §12
+  already established either works at 10400. All of §12's datasheet
+  analysis stands.
+- **Pin 1 confirmed** from the marking orientation, not just inferred from
+  layout: read upright, pin 1 is bottom-left. An earlier annotated photo
+  that placed it from the silkscreen bar alone turned out correct.
+
+The seller's description (fetched from eBay's description endpoint; the
+listing page itself refuses automated fetches) confirms the reading: an
+*"intelligent protocol converter"* supporting *"host request control frame
+and host request status frame"*, with *"built-in timeout functions"*. No
+raw or transparent mode, command set, baud setting or manual is given.
+
+**Why the MCU rules out using it as designed:**
+
+- It generates LIN framing — a ~1.3 ms break, 0x55 sync, PID, checksum. It
+  cannot hold the bus low for 25 ms (fast init) or 200 ms (slow init).
+- K-line traffic has no LIN break, so the MCU will most likely discard it:
+  the sniffer would be blind.
+- As a LIN master it may transmit unprompted at power-up. The firmware's
+  two TX gates cannot stop that, so **the board must not meet the car with
+  the MCU running**.
+
+The concern that drove §13's first move — a 5 V RXD pull-up reaching the
+ESP32 — largely goes away: the board's logic is 3.3 V throughout.
+
+### Decisions added
+
+| # | Decision | Rationale |
+|---|----------|-----------|
+| 14 | **Bypass the MCU**: `RESET` to GND, ESP32 wired directly to TJA1021 pins 1 (RXD), 2 (SLP_N), 4 (TXD) | In reset the APM32's GPIOs float, releasing the transceiver. The board then becomes the planned TJA1021 breakout, keeping its LDO, protection and terminals. Three wires, no firmware change |
+| 15 | **1 kΩ in series on TXD and SLP_N** | If the reset wire ever comes off, the MCU and ESP32 contend through a resistor instead of directly. Negligible against the 140 kΩ internal pull-downs |
+| 16 | Not pursuing the MCU's native protocol or reflashing it | No documentation, no evidence of a raw mode; reflashing is a project of its own for the same result as three wires |
+
+Wiring table and annotated photo:
+[HARDWARE.md — the module in hand](HARDWARE.md#the-module-in-hand--u7x54911-ttl-to-lin-bus-tja1021-module),
+image at `docs/images/tja1021-module-pins.jpg`.
+
+### Still to do before Phase 3
+
+Three resistance readings with the board unpowered:
+
+1. **Pin 5 ↔ `GND` terminal** — continuity; confirms orientation once more
+   before soldering.
+2. **Pin 1 ↔ `3V3` header pin** — the RXD pull-up. If open, the board was
+   relying on the MCU's internal pull-up, which is gone in reset: fit
+   4.7 kΩ to 3.3 V.
+3. **`LIN` ↔ `VCC` terminal** — the master pull-up. Decides whether to add
+   1 kΩ in parallel or fit the full 510 Ω.
+
+   **Measured 2026-09-30: ~10 MΩ, unpowered — inconclusive.** A LIN
+   master pull-up is normally 1 kΩ *with a series diode*, and the board
+   probably also has a reverse-polarity diode on `VCC`. A meter's ohms
+   range drives well under a volt, too little to forward-bias one diode,
+   let alone two, so it reads open whether or not a resistor is there. The
+   chip's own 30 kΩ termination hides behind a diode the same way.
+
+   **Replacement test (powered, bench only):** 12 V on `VCC`/`GND`,
+   nothing else on `LIN`, ESP32 not connected. Measure `LIN`–`GND` (expect
+   ~10–11 V), then load `LIN` with 1 kΩ to `GND` and measure again:
+
+   | LIN under 1 kΩ load | Meaning | Action |
+   |---|---|---|
+   | ~5 V | 1 kΩ master pull-up fitted | Add 1 kΩ in parallel → ~500 Ω |
+   | < 1 V | Only the 30 kΩ termination, or nothing | Fit the full 510 Ω |
+   | ~2–3 V | Something like 2.2–4.7 kΩ | Calculate the parallel value |
+
+   **Why it matters:** a hidden 1 kΩ plus a full 510 Ω is ~340 Ω. At
+   14.4 V with the engine running that is ~42 mA, past the TJA1021's
+   40 mA minimum `IBUS_LIM`, so the driver could current-limit and fail to
+   pull the bus fully low.
+
+   Diode mode (`12V`→`LIN`, then reversed) is a quicker partial check: a
+   0.5–1.3 V reading in one direction shows a diode path exists, but not
+   whether it leads to 1 kΩ or 30 kΩ.
+
+   Measurements 1 and 2 are still to be taken.
+
+Then the bypass wiring, then §13's moves 2 and 3 unchanged. The EKA code is
+still outstanding.
+
 ## Sources
 
 - [NXP TJA1021 datasheet, rev. 9](https://www.nxp.com/docs/en/data-sheet/TJA1021.pdf)
@@ -354,3 +452,4 @@ init through the bypass MOSFET is a fallback rather than the main path.
 - [rangerovers.pub — OBD connection](https://rangerovers.pub/topic/65-obd-connection)
 - [NXP AN00093 — TJA1020 LIN transceiver](https://www.nxp.com/docs/en/application-note/AN00093.pdf)
 - [ST L9637 datasheet](https://www.st.com/resource/en/datasheet/l9637.pdf)
+- [eBay 287315145186 — TTL to LIN Bus TJA1021 Module U7X54911](https://www.ebay.com/itm/287315145186)

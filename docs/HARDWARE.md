@@ -52,7 +52,11 @@ The L9637D is a purpose-built ISO 9141 K-line transceiver. Minimal circuit:
   converter; automotive rails carry transients that will kill a bare LDO.
 - Add a common ground between the ESP32 and the car before connecting K.
 
-## Reference circuit — TJA1021 (the module actually ordered)
+## Reference circuit — TJA1021 (bare chip)
+
+The module actually bought has a microcontroller in front of the
+transceiver — see [the module in hand](#the-module-in-hand--u7x54911-ttl-to-lin-bus-tja1021-module)
+below for how to get at the chip directly.
 
 NXP list "K-line compatible" as a feature of the TJA1021. It has no logic
 supply pin: RXD is open-drain, so **the rail you pull RXD up to is the logic
@@ -95,6 +99,240 @@ level**. Pull it to 3.3 V and the ESP32 sees 3.3 V, with no divider needed.
   A TVS is still worth fitting; it is no longer life-or-death for the part.
 - **Slow init needs the bypass MOSFET below. Fast init does not** — see
   the TXD timeout note.
+
+## The module in hand — U7X54911 "TTL to LIN Bus TJA1021 Module"
+
+Received and inspected 2026-09-30. **It is not a bare transceiver
+breakout.** It has a microcontroller between its screw terminals and the
+TJA1021, so the ESP32 cannot reach the transceiver through the terminals.
+
+| Part | Identification |
+|------|----------------|
+| SO8 transceiver | **NXP TJA1021T/20** — marking *NXP / 1021T/20 / HNNRBA / B321*. Genuine, 20 kBd slope variant; fine at 10400 |
+| LQFP48 MCU | **Geehy APM32F103C8T6** — an STM32F103C8T6 clone, 3.3 V |
+| SOT-223 | 3.3 V LDO for the MCU, fed from the 12 V terminal |
+| Header | `3V3 / TX / RX / GND` plus a `RESET` pad — the MCU's programming port |
+| Terminals | `VCC(12V) / LIN / GND` on the bus side; `RX / TX / GND` on the logic side |
+
+The seller calls it an *"intelligent protocol converter"* supporting *"host
+request control frame and host request status frame"* — i.e. a LIN master
+that generates break, sync, PID and checksum itself. It cannot hold the bus
+low for 25 ms (fast init) or 200 ms (slow init), will likely discard K-line
+traffic that has no LIN break, and no raw or transparent mode is documented.
+**Used as designed, it cannot do this job.**
+
+**Do not connect it to the car with the MCU running.** A LIN master may
+transmit on its own at power-up, and neither of the firmware's TX gates can
+stop it.
+
+### Bypass the MCU
+
+Hold the MCU in reset and wire the ESP32 straight to the TJA1021's legs.
+In reset the APM32 (like the STM32) puts every GPIO into floating input, so
+it lets go of TXD and SLP_N.
+
+![TJA1021 pins on the U7X54911 board](images/tja1021-module-pins.jpg)
+
+| ESP32 | Goes to | Note |
+|-------|---------|------|
+| GND | `RESET` pad | Holds the MCU in reset |
+| GPIO17 (TX) | TJA1021 pin 4 TXD | **Through 1 kΩ** |
+| GPIO21 (EN) | TJA1021 pin 2 SLP_N | **Through 1 kΩ** |
+| GPIO16 (RX) | TJA1021 pin 1 RXD | Direct |
+| GND | `GND` terminal | Common ground |
+| — | `VCC` terminal | +12 V, fused |
+| — | `LIN` terminal | K-line; bypass MOSFET drain also goes here |
+
+- The logic-side `RX` / `TX` screw terminals are left unconnected.
+- **The 1 kΩ resistors are there in case the reset wire comes off.** If the
+  MCU wakes up and drives the same pins, the two fight through a resistor
+  rather than directly. 1 kΩ against the TJA1021's 140 kΩ minimum pull-down
+  costs nothing.
+- Pins 3, 5, 6, 7 and 8 are already wired by the board. Leave them alone.
+- Solder thin wire onto the shoulder of each leg; the pitch is 1.27 mm.
+- **Pin 1 location is confirmed** from the package marking: read upright,
+  pin 1 is bottom-left. On the board that is the end of the `RESET`-side
+  row farthest from the board edge.
+
+`sdkconfig.ncv.defaults` applies unchanged.
+
+### Still to measure (board unpowered)
+
+- **Pin 5 to the `GND` terminal** — continuity. A ten-second sanity check
+  before soldering.
+- **Pin 1 RXD to the `3V3` header pin** — expect a few kΩ. The board runs
+  its logic at 3.3 V, so this pull-up cannot put 5 V on the ESP32. If it
+  reads open or above ~100 kΩ, the board may have relied on the MCU's
+  internal pull-up, which is gone in reset — fit 4.7 kΩ from RXD to 3.3 V.
+- **`LIN` to `VCC` terminal** — the master pull-up, if any.
+  **Measured ~10 MΩ (2026-09-30), which is inconclusive:** a master
+  pull-up normally has a series diode, and probably so does the board's
+  `VCC` input, so an ohmmeter cannot see through it. Use the powered test
+  below instead.
+
+### Master pull-up — powered test (bench only)
+
+12 V on `VCC` / `GND`, nothing else on `LIN`, ESP32 not connected. The MCU
+will run; on the bench that is harmless.
+
+1. Measure `LIN` to `GND` — expect ~10–11 V, the bus resting high.
+2. Put a **1 kΩ from `LIN` to `GND`** and measure again:
+
+| LIN under 1 kΩ load | Meaning | Action |
+|---------------------|---------|--------|
+| ~5 V | 1 kΩ master pull-up fitted | Add **1 kΩ** 12 V→LIN in parallel → ~500 Ω |
+| < 1 V | Only the chip's 30 kΩ termination, or nothing | Fit the full **510 Ω** |
+| ~2–3 V | Something like 2.2–4.7 kΩ | Work out the parallel value for ~500 Ω total |
+
+Don't simply add 510 Ω without knowing: on top of a hidden 1 kΩ that makes
+~340 Ω, which at 14.4 V draws ~42 mA — past the TJA1021's 40 mA minimum
+current limit, so the driver could fail to pull the bus fully low.
+
+### Connection reference — every wire, and why
+
+```
+ CAR DIAGNOSTIC SOCKET        TJA1021 MODULE                        ESP32
+ ─────────────────────        ──────────────                        ─────
+ pin 16 +12V ──fuse──┬──────► VCC terminal ──► TJA pin 7 VBAT
+                     ├─[510Ω]─┐
+                     └──────► buck 12→5V ─────────────────────────► 5V / VIN
+ pin 7  K-line ──────────────┴► LIN terminal ◄─► TJA pin 6 LIN
+                                   ▲
+                                   └── MOSFET drain (slow init only)
+ pin 4/5 GND ────────────────► GND terminal ◄─► TJA pin 5 GND ◄──► GND
+                                               TJA pin 1 RXD ─────► GPIO16
+                                               TJA pin 2 SLP_N ◄─[1k]─ GPIO21
+                                               TJA pin 4 TXD  ◄─[1k]─ GPIO17
+                                               RESET pad ◄────────── GND
+                              MOSFET gate ◄─[1k]─ GPIO22   (100k gate→GND)
+```
+
+#### Car side — diagnostic socket
+
+| Pin | What it is | Connects to | Why |
+|-----|-----------|-------------|-----|
+| **16** | Permanent battery +12 V | 1 A fuse → module `VCC`, the 510 Ω pull-up, and the ESP32's buck converter | Powers everything. The fuse protects the car's wiring; a TVS clamps transients |
+| **4 / 5** | Chassis / signal ground | Module `GND` and ESP32 GND | One common ground — without it "high" and "low" mean nothing between car and ESP32 |
+| **7** | K-line, the diagnostic bus | Module `LIN` terminal | The single wire BeCM, GEMS, ABS, HEVAC and gearbox all talk on |
+| **15** | L-line | Not connected | Only used by some old init schemes; most ECUs accept K-only |
+
+#### Module terminals
+
+| Terminal | Connects to | Notes |
+|----------|-------------|-------|
+| `VCC` (12V) | Fused +12 V | Feeds TJA1021 VBAT and the board's 3.3 V LDO, probably via a reverse-polarity diode |
+| `LIN` | Car pin 7, the 510 Ω pull-up, the MOSFET drain | This *is* the K-line |
+| `GND` | Car ground and ESP32 GND | Common ground |
+| `RX` / `TX` (logic side) | **Nothing** | They go to the MCU, which is bypassed |
+| `3V3/TX/RX/GND` header | **Nothing** — 3V3 is used only as a probe point for the RXD pull-up measurement | The MCU's programming port |
+| `RESET` pad | **ESP32 GND** | Holds the MCU in reset: its pins float and it cannot transmit |
+
+#### TJA1021 pins
+
+**Pin 7 — VBAT: the chip's supply.**
+
+- Already wired by the board to the `VCC` terminal, which is fed from car
+  pin 16. Nothing to solder here.
+- Powers the chip's bus driver and receiver. It draws a few mA; it does
+  **not** power the ESP32.
+- **It defines the bus "high".** Inside the chip, 30 kΩ plus a diode pull
+  LIN up towards VBAT, so an idle bus sits at about battery voltage.
+- **It sets the receiver thresholds.** The receiver decides low or high as
+  a fraction of VBAT, roughly 40 % and 60 %. That is why VBAT must come
+  from the **same battery** the car's ECUs use. A separate 12 V would put
+  the chip and the ECUs in disagreement about where "high" is. On the
+  bench, one supply feeds both.
+- Works from 5.5 to 27 V and survives up to 40 V. Transmission is only
+  guaranteed to 18 V, which is why a TVS is still worth fitting.
+
+**Pin 6 — LIN: the bus pin.** Already wired to the `LIN` terminal.
+
+- To send a low, the driver pulls the line to about 1 V. To send a high,
+  it lets go, and the pull-ups bring the line back to 12 V.
+- The internal 30 kΩ pull-up is far too weak for K-line, so the external
+  **510 Ω from +12 V to LIN** is required. It is the ISO 9141 master
+  pull-up and gives sharp edges at 10400 baud.
+- About 24 mA flows when the line is low, well inside the driver's
+  40–100 mA limit.
+
+**Pin 5 — GND.** Already on the board ground.
+
+**Pin 4 — TXD: data in from the ESP32.**
+
+- Connect ESP32 **GPIO17** (UART TX) through **1 kΩ**.
+- TXD low drives the bus low; TXD high releases it. The UART idles high,
+  so the bus rests high.
+- The 1 kΩ protects against contention if the MCU ever wakes up.
+- The chip cuts the driver after 27–90 ms of continuous low. That is fine
+  for normal bytes (under 1 ms) and fast init (25 ms), but too short for
+  slow init's 200 ms bits — hence the MOSFET.
+
+**Pin 1 — RXD: data out to the ESP32.**
+
+- Connect ESP32 **GPIO16** (UART RX) directly.
+- Mirrors the bus state. The output can only pull low, so a pull-up to
+  3.3 V makes the high level (measurement #2 above; fit 4.7 kΩ to 3.3 V if
+  it reads open).
+- Every byte you send comes straight back on RXD, because the bus is
+  shared in both directions. The firmware checks that echo on every byte,
+  which doubles as a continuous wiring test.
+
+**Pin 2 — SLP_N: on/off.**
+
+- Connect ESP32 **GPIO21** through **1 kΩ**.
+- Low is sleep, with the bus disconnected. The rising edge switches the
+  chip on. An internal pull-down keeps it asleep if nothing drives it.
+- The firmware raises it only after the UART is holding TXD high: entering
+  normal mode with TXD low would leave the transmitter off.
+
+**Pin 3 — WAKE_N: local wake input.** Wired by the board. Leave it alone.
+
+**Pin 8 — INH: inhibit output.** Rises to near battery voltage while the
+chip is active; meant for switching on an external regulator. Unused here.
+Leave it alone.
+
+#### ESP32 side
+
+| ESP32 | To | Purpose |
+|-------|----|---------|
+| **GPIO17** | TJA pin 4 via 1 kΩ | UART TX, 10400 baud |
+| **GPIO16** | TJA pin 1 | UART RX, including the echo |
+| **GPIO21** | TJA pin 2 via 1 kΩ | Transceiver on/off (`CONFIG_RRP38_EN_GPIO`) |
+| **GPIO22** | MOSFET gate via 1 kΩ | Slow init only (`CONFIG_RRP38_INIT_DRIVER_GPIO`) |
+| **GND** | Module GND and the `RESET` pad | Common ground; MCU held off |
+| **5V / VIN** | Buck converter output, or USB on the bench | ESP32 power. **Not** the module's 3V3 — its small LDO is not meant for that. Never run the ESP32 straight off the car's 12 V |
+
+#### Bypass MOSFET — slow init only
+
+| Part | Connection | Why |
+|------|-----------|-----|
+| 2N7002 / BSS138 **drain** | `LIN` terminal | Pulls the K-line low. It has no timeout, unlike the TJA1021 |
+| **Source** | GND | |
+| **Gate** | GPIO22 via 1 kΩ, plus **100 kΩ to GND** | The 100 kΩ keeps the MOSFET off while the ESP32 boots or resets. Without it, a floating gate could hold the car's bus low |
+
+During a 5-baud init TXD stays high, so the chip is not transmitting, and
+the MOSFET creates the low bits instead. The chip's RXD still sees them.
+Details in [Bypass MOSFET](#bypass-mosfet--for-transceivers-with-a-txd-dominant-timeout).
+
+#### How one bit flows
+
+1. The ESP32 sends a 0 bit, so GPIO17 goes low.
+2. TJA1021 TXD goes low, and its LIN pin pulls pin 7 down to about 1 V.
+3. Every module on the bus sees it, and so does the TJA1021's own
+   receiver.
+4. RXD goes low, so GPIO16 reads the echo.
+
+For a 1 bit, GPIO17 goes high, the driver lets go, the 510 Ω pulls the line
+back to 12 V, and RXD reads 3.3 V.
+
+#### On the bench
+
+- One 12 V bench supply stands in for the car: it feeds `VCC` and the
+  510 Ω pull-up to `LIN`.
+- Nothing else on `LIN`.
+- The ESP32 runs from USB.
+- **Connect the bench supply's GND to the ESP32's GND.** On the bench
+  nothing else ties them together.
 
 
 ## Bypass MOSFET — for transceivers with a TxD dominant timeout

@@ -5,9 +5,10 @@ is deliberate: every phase either proves the hardware or narrows the
 protocol, so that when something fails you always know which of the two it
 was.
 
-**Status: Phase 1 complete. Phase 2 in progress — TJA1021 module ordered
-2026-09-09, awaiting delivery. Nothing is blocked on further decisions; the
-next move is bench-testing when the parts land.**
+**Status: Phase 1 complete. Phase 2 in progress — TJA1021 module received
+2026-09-30. It has an MCU in front of the transceiver, so it needs a
+three-wire bypass before use (HARDWARE.md). Next: three resistance checks,
+the bypass wiring, then Phase 3.**
 
 ---
 
@@ -49,8 +50,12 @@ clean, before any hardware exists.
 faults can be told apart.
 
 - [x] Order a **LIN transceiver breakout** — a **TJA1021** TTL-to-LIN module,
-      ordered 2026-09-09. Datasheet-checked; see
+      ordered 2026-09-09, **received 2026-09-30**. Datasheet-checked; see
       [INTERFACE-MODULES.md](INTERFACE-MODULES.md)
+- [ ] **Bypass the module's MCU** — `RESET` to GND, ESP32 wired to TJA1021
+      pins 1, 2, 4 (1 kΩ on 2 and 4). First measure: pin 5↔GND, pin 1↔3V3,
+      and the master pull-up by the powered 1 kΩ-load test (the unpowered
+      LIN↔VCC reading of 10 MΩ was inconclusive — diodes). See [HARDWARE.md](HARDWARE.md#the-module-in-hand--u7x54911-ttl-to-lin-bus-tja1021-module)
 - [ ] Order a **KKL 409.1 cable, FTDI FT232RL version**
 - [ ] Order the supporting parts: automotive 12 V→5 V buck, 510 Ω, 100 nF ×2,
       1 A inline fuse, TVS on the 12 V rail
@@ -221,6 +226,7 @@ K-line decoding proceeds at its own pace.
 |------|-----------|--------|------------|
 | BeCM immobiliser lockout | Low | **Severe** — car will not start | EKA code recorded; two TX gates; passive-first workflow |
 | LIN transceiver's TXD timeout breaks 5-baud init | Medium | Low | Second transceiver (KKL cable) as fallback |
+| Module's onboard MCU transmits on the car's K-line, bypassing both TX gates | Low once bypassed | **Severe** | MCU held in reset via `RESET` pad; 1 kΩ series on TXD/SLP_N; never connect the board to the car with the MCU running |
 | Bus is simply quiet; nothing to sniff | High | Low | Phase 3 bench test proves hardware independently |
 | GEMS framing resists decoding | Medium | Medium | Phase 8 parallel track; community resources |
 | Corroded kick-panel connectors block EAS | Medium | Low | Known failure point — inspect before blaming the circuit |

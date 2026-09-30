@@ -131,7 +131,7 @@ board of your own. This is the cleanest electrical answer.
 **c) Use the board for RX only** and transmit through a second transceiver
 (the gutted KKL cable). Works, but doubles the wiring.
 
-### Worked example — TJA1021 TTL-to-LIN module (ordered 2026-09-09)
+### Worked example — TJA1021 TTL-to-LIN module (ordered 2026-09-09, received 2026-09-30)
 
 The part actually bought: a generic *"TTL to LIN Bus TJA1021 Module /
 Automotive Bus"* breakout. Checked against the
@@ -175,8 +175,23 @@ Still needed: the bypass MOSFET (2N7002/BSS138 + 1 kΩ + 100 kΩ) for
 **5-baud init only**, and a 4.7 kΩ RXD pull-up **to 3.3 V** if the board
 does not fit one. Fast init needs neither.
 
+#### What it turned out to be (received 2026-09-30)
+
+**The module has a microcontroller on it** — a Geehy APM32F103C8T6 sits
+between the screw terminals and the TJA1021 and speaks LIN framing, so the
+terminals are no use for K-line. The transceiver itself is a genuine
+**NXP TJA1021T/20**, so everything above still applies once the MCU is held
+in reset and the ESP32 is wired to the chip's legs. Wiring, annotated photo
+and remaining measurements are in
+[HARDWARE.md — the module in hand](HARDWARE.md#the-module-in-hand--u7x54911-ttl-to-lin-bus-tja1021-module).
+
+**Lesson for buying:** a listing that says "protocol converter", "host
+request frame" or shows a large chip beside the SO8 has an MCU. Look for a
+board where the only IC is the transceiver.
+
 #### What to check when it arrives
 
+- **Whether there is an MCU on the board.** If there is, see above.
 - **What the RXD pull-up goes to.** If the module pulls RXD up to an
   onboard 5 V rail, that 5 V lands on an ESP32 pin rated 3.6 V absolute
   max. Lift the resistor and pull RXD to 3.3 V instead, or fit a divider.
@@ -187,7 +202,9 @@ does not fit one. Fast init needs neither.
   strapped high, set `CONFIG_RRP38_EN_GPIO=-1` and save a GPIO.
 - **Whether a master pull-up is fitted**, and its value. Typical LIN master
   boards use 1 kΩ; K-line wants 510 Ω. Adding 1 kΩ in parallel with an
-  existing 1 kΩ gives 500 Ω, which is close enough.
+  existing 1 kΩ gives 500 Ω, which is close enough. **An ohmmeter cannot
+  find it** — master pull-ups have a series diode, so they read open
+  unpowered. Power the board and load LIN with 1 kΩ instead (HARDWARE.md).
 - **Whether WAKE_N is tied to VBAT.** If it floats, tie it high.
 
 ---
