@@ -5,7 +5,6 @@
  * Deliberately read-only towards the K-line: there is no route that arms,
  * inits, sends or scans. Those stay on the USB console (decision 25). The
  * one K-line action here is starting and stopping a passive sniff.
- * GitHub-release install is Track H step 5 and not here yet.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,8 +12,12 @@
 #include <sys/param.h>
 
 #include "esp_app_desc.h"
+#include "esp_crt_bundle.h"
+#include "esp_http_client.h"
 #include "esp_http_server.h"
+#include "esp_https_ota.h"
 #include "esp_log.h"
+#include "esp_tls.h"
 #include "esp_ota_ops.h"
 #include "esp_system.h"
 #include "esp_timer.h"
@@ -27,6 +30,70 @@
 #include "web_server.h"
 
 static const char *TAG = "web";
+
+/* ---------------------------------------------------- GitHub install --
+ * Every release carries two app images, named by .github/workflows/
+ * release.yml as RRp38KLine_<variant>_v<version>.bin: "passive" (TX compiled
+ * out) and "tx". This build's own variant is below; installing the other one
+ * is how a board moves between them without USB.
+ *
+ * The install runs in its own task so the page can poll progress while it
+ * downloads. One writer (the task), one reader (httpd), no locking. */
+#define GH_RELEASES_URL     "https://api.github.com/repos/SEspe/RRp38KLineInterface/releases?per_page=8"
+#define GH_ASSET_URL_PREFIX "https://github.com/SEspe/RRp38KLineInterface/releases/download/"
+#define GH_REPO_URL         "https://github.com/SEspe/RRp38KLineInterface"
+#define GH_ASSET_PREFIX     FIRMWARE_NAME "_"
+
+#if CONFIG_RRP38_ALLOW_TX
+#define FW_VARIANT "tx"
+#else
+#define FW_VARIANT "passive"
+#endif
+
+enum { GH_OTA_IDLE = 0, GH_OTA_DOWNLOADING, GH_OTA_SUCCESS, GH_OTA_ERROR };
+static volatile int     g_gh_ota_state   = GH_OTA_IDLE;
+static volatile int     g_gh_ota_percent = 0;
+static volatile int64_t g_gh_ota_total   = 0;
+static char             g_gh_ota_url[256] = "";
+static char             g_gh_ota_err[128] = "";
+static char             g_gh_ota_trace[600] = "";   /* HTTP event trace: diagnoses a failed
+                                                       install without a USB cable */
+
+/* Traces esp_http_client events during the download, exposed on the
+ * progress endpoint. SlaveWallas found its redirect-buffer bug this way. */
+static esp_err_t gh_http_event_handler(esp_http_client_event_t *evt)
+{
+    size_t len = strlen(g_gh_ota_trace);
+    if (len >= sizeof(g_gh_ota_trace) - 60) return ESP_OK;
+    char *p = g_gh_ota_trace + len;
+    size_t room = sizeof(g_gh_ota_trace) - len;
+    switch (evt->event_id) {
+    case HTTP_EVENT_ERROR: {
+        esp_tls_error_handle_t eh = (esp_tls_error_handle_t)evt->data;
+        if (eh) {
+            snprintf(p, room, "|ERR(le=%d,tlsc=%d,flags=%d)",
+                     (int)eh->last_error, eh->esp_tls_error_code, eh->esp_tls_flags);
+        } else {
+            snprintf(p, room, "|ERR(noeh)");
+        }
+        break;
+    }
+    case HTTP_EVENT_ON_CONNECTED:       snprintf(p, room, "|CONN"); break;
+    case HTTP_EVENT_HEADERS_SENT:       snprintf(p, room, "|SENT"); break;
+    case HTTP_EVENT_ON_HEADERS_COMPLETE:
+        snprintf(p, room, "|HDRDONE(st=%d)", esp_http_client_get_status_code(evt->client));
+        break;
+    case HTTP_EVENT_ON_HEADER:
+        if (evt->header_key && strcasecmp(evt->header_key, "Location") == 0) {
+            snprintf(p, room, "|LOC=%.50s", evt->header_value);
+        }
+        break;
+    case HTTP_EVENT_ON_FINISH:          snprintf(p, room, "|FIN"); break;
+    case HTTP_EVENT_DISCONNECTED:       snprintf(p, room, "|DISC"); break;
+    default: break;
+    }
+    return ESP_OK;
+}
 
 /* ------------------------------------------------------------- HTML -- */
 
@@ -126,9 +193,19 @@ static const char INDEX_HTML[] =
 
 "<div id='ota' class='pane'>"
 "<div class='card'><h3>Firmware</h3><div class='grid' id='vr'>&hellip;</div></div>"
+"<div class='card'><h3>Install from GitHub</h3>"
+"<p class='note'>Needs the board on WiFi with internet (home WiFi tab). Each release has a "
+"<b>passive</b> image (transmit compiled out, for listening in the car) and a <b>tx</b> image. "
+"Installing the other kind switches the board between them.</p>"
+"<button class='btn s' onclick='ghList()'>Check GitHub</button> "
+"<a class='btn s' style='display:inline-block;text-decoration:none' href='" GH_REPO_URL "/releases' target='_blank' rel='noopener'>Releases page</a>"
+"<div class='ts' id='ghs'></div>"
+"<select id='ghsel' style='display:none;width:100%;max-width:420px'></select>"
+"<button class='btn' id='ghbtn' style='display:none' onclick='ghInstall()'>Install selected</button>"
+"<div class='prog' id='ghp'></div></div>"
 "<div class='card'><h3>Upload firmware</h3>"
 "<p class='note'>Select a compiled <code>.bin</code>. The K-line transceiver is put to sleep before "
-"the reboot. Do not upload while a session is running on the console.</p>"
+"the reboot. Refused while a capture, init or send is using the K-line.</p>"
 "<input type='file' id='fw' accept='.bin'>"
 "<button class='btn' onclick='upload()'>Upload &amp; flash</button>"
 "<div class='prog' id='prog'></div></div></div>"
@@ -162,10 +239,42 @@ static const char INDEX_HTML[] =
 "row('Uptime',up(s.uptime))+row('Free heap',s.heap)+row('Heap low-water',s.heapMin);"
 "document.getElementById('sts').textContent='Updated '+hms();"
 "}).catch(()=>{document.getElementById('sts').textContent='No answer at '+hms();});}"
-"function ver(){fetch('/api/version').then(r=>r.json()).then(v=>{"
-"document.getElementById('vr').innerHTML=row('Installed','v'+esc(v.installed))+"
+"var VV={},GR=[],GT=null;"
+"function vnum(v){return String(v||'').replace(/^v/,'').split('.').map(x=>parseInt(x,10)||0);}"
+"function volder(a,b){var A=vnum(a),B=vnum(b);for(var i=0;i<Math.max(A.length,B.length);i++){"
+"var x=A[i]||0,y=B[i]||0;if(x!==y)return x<y;}return false;}"
+"function ver(){fetch('/api/version').then(r=>r.json()).then(v=>{VV=v;"
+"document.getElementById('vr').innerHTML=row('Installed','v'+esc(v.installed)+' '+esc(v.variant),v.variant==='tx'?'amb':'ok')+"
 "row('Stored (other slot)',v.stored?'v'+esc(v.stored).replace(/^v/,''):'\\u2014')+"
-"row('Running from',esc(v.running));}).catch(()=>{});}"
+"row('Running from',esc(v.running))+(GR.length?row('Newest on GitHub',ghNewest(v.variant)):'');}).catch(()=>{});}"
+"function ghNewest(vt){var n='';GR.forEach(r=>{if(r.variant===vt&&(!n||volder(n,r.version)))n=r.version;});"
+"return n?'v'+esc(n)+(volder(VV.installed,n)?' \\u2014 newer':''):'\\u2014';}"
+"function ghList(){var s=document.getElementById('ghs'),sel=document.getElementById('ghsel');"
+"s.textContent='Asking GitHub\\u2026';sel.style.display='none';document.getElementById('ghbtn').style.display='none';"
+"fetch('/api/ota/github/releases').then(r=>r.ok?r.json():r.text().then(t=>{throw new Error(t);})).then(a=>{"
+"GR=a;ver();if(!a.length){s.textContent='No releases with RRp38KLine images yet.';return;}"
+"s.textContent=a.length+' image'+(a.length!==1?'s':'')+' found';sel.innerHTML='';"
+"a.forEach((r,i)=>{var o=document.createElement('option');o.value=i;"
+"o.textContent=r.tag+' \\u2014 '+r.variant+(r.variant===VV.variant?'':' (switches build)')+' \\u2014 '+r.published.slice(0,10);"
+"sel.appendChild(o);});"
+"var own=a.findIndex(r=>r.variant===VV.variant);if(own>=0)sel.value=own;"
+"sel.style.display='block';document.getElementById('ghbtn').style.display='inline-block';"
+"}).catch(e=>{s.textContent='Failed: '+e.message;});}"
+"function ghInstall(){var r=GR[document.getElementById('ghsel').value];if(!r)return;"
+"var m='Install '+r.asset+' and reboot?';"
+"if(r.variant!==VV.variant)m+=r.variant==='tx'?'\\n\\nThis is the TRANSMIT-CAPABLE build. It still needs arm --yes on the USB console before it sends anything.'"
+":'\\n\\nThis is the PASSIVE build: transmit is compiled out until a tx image is installed again.';"
+"if(!confirm(m))return;var p=document.getElementById('ghp');p.textContent='Starting\\u2026';"
+"document.getElementById('ghbtn').disabled=true;"
+"fetch('/api/ota/github/install',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},"
+"body:'url='+encodeURIComponent(r.url)+'&size='+r.size}).then(x=>{if(!x.ok)return x.text().then(t=>{throw new Error(t);});"
+"GT=setInterval(ghPoll,1000);}).catch(e=>{p.textContent='Could not start: '+e.message;"
+"document.getElementById('ghbtn').disabled=false;});}"
+"function ghPoll(){fetch('/api/ota/github/progress').then(r=>r.json()).then(d=>{var p=document.getElementById('ghp');"
+"if(d.state==='downloading')p.textContent='Downloading and flashing: '+d.percent+'%';"
+"else if(d.state==='success'){p.textContent='Done. Rebooting \\u2014 reload in about 10 s.';clearInterval(GT);}"
+"else if(d.state==='error'){p.textContent='Error: '+d.error+' '+d.trace;clearInterval(GT);"
+"document.getElementById('ghbtn').disabled=false;}}).catch(()=>{});}"
 "function scan(){var st=document.getElementById('scs');st.textContent='Scanning\\u2026';"
 "document.getElementById('nets').innerHTML='';"
 "fetch('/api/scan').then(r=>r.json()).then(a=>{"
@@ -401,10 +510,10 @@ static esp_err_t h_version(httpd_req_t *req)
     }
     const esp_partition_t *run = esp_ota_get_running_partition();
 
-    char buf[200];
+    char buf[220];
     snprintf(buf, sizeof(buf),
-             "{\"name\":\"%s\",\"installed\":\"%s\",\"stored\":\"%s\",\"running\":\"%s\"}",
-             FIRMWARE_NAME, FIRMWARE_VERSION, stored, run ? run->label : "");
+             "{\"name\":\"%s\",\"variant\":\"%s\",\"installed\":\"%s\",\"stored\":\"%s\",\"running\":\"%s\"}",
+             FIRMWARE_NAME, FW_VARIANT, FIRMWARE_VERSION, stored, run ? run->label : "");
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_sendstr(req, buf);
 }
@@ -585,9 +694,27 @@ static esp_err_t h_reboot(httpd_req_t *req)
     return ESP_OK;
 }
 
+/* No OTA while a capture, init or send holds the K-line: the reboot at the
+ * end would cut it off mid-session. Sends the refusal itself. */
+static bool refuse_if_bus_busy(httpd_req_t *req)
+{
+    const char *owner = kline_owner();
+    if (!owner[0]) {
+        return false;
+    }
+    char msg[64];
+    snprintf(msg, sizeof(msg), "K-line busy (%s) - stop it before updating", owner);
+    httpd_resp_set_status(req, "409 Conflict");
+    httpd_resp_sendstr(req, msg);
+    return true;
+}
+
 /* POST /ota/upload - raw .bin, streamed into the inactive slot. */
 static esp_err_t h_ota_upload(httpd_req_t *req)
 {
+    if (refuse_if_bus_busy(req)) {
+        return ESP_OK;
+    }
     const esp_partition_t *part = esp_ota_get_next_update_partition(NULL);
     if (!part) {
         return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "no OTA partition");
@@ -636,15 +763,316 @@ static esp_err_t h_ota_upload(httpd_req_t *req)
     return ESP_OK;
 }
 
+/* ------------------------------------------------- GitHub releases -- */
+
+/* One literal key the release scanner watches for in the streaming body. */
+typedef struct { const char *pat; size_t len; size_t k; } gh_key_t;
+
+/* Advances a literal matcher by one byte; true when the whole key completes. */
+static bool gh_key_feed(gh_key_t *k, char c)
+{
+    if (c == k->pat[k->k]) {
+        if (++k->k == k->len) {
+            k->k = 0;
+            return true;
+        }
+    } else {
+        k->k = (c == k->pat[0]) ? 1 : 0;
+    }
+    return false;
+}
+
+/* Splits a release asset filename "RRp38KLine_<variant>_v<ver>.bin" into
+ * variant and version. Both are restricted to plain characters, since they
+ * come off the network and end up in a JSON body. */
+static bool gh_parse_asset(const char *base, char *variant, size_t vcap, char *ver, size_t vercap)
+{
+    const size_t plen = strlen(GH_ASSET_PREFIX);
+    size_t blen = strlen(base);
+    if (blen <= plen + 4 || strncmp(base, GH_ASSET_PREFIX, plen) != 0 ||
+        strcmp(base + blen - 4, ".bin") != 0) {
+        return false;
+    }
+    const char *v = base + plen;
+    const char *sep = strstr(v, "_v");
+    if (!sep || sep == v || (size_t)(sep - v) >= vcap) {
+        return false;
+    }
+    size_t verlen = (size_t)(base + blen - 4 - (sep + 2));
+    if (verlen == 0 || verlen >= vercap) {
+        return false;
+    }
+    for (const char *c = v; c < base + blen - 4; c++) {
+        bool ok = (*c >= '0' && *c <= '9') || (*c >= 'a' && *c <= 'z') ||
+                  (*c >= 'A' && *c <= 'Z') || *c == '.' || *c == '-' || *c == '_';
+        if (!ok) {
+            return false;
+        }
+    }
+    memcpy(variant, v, (size_t)(sep - v));
+    variant[sep - v] = '\0';
+    memcpy(ver, sep + 2, verlen);
+    ver[verlen] = '\0';
+    return true;
+}
+
+/* Opens the releases listing. On failure sends the error itself. */
+static esp_http_client_handle_t gh_open_releases(httpd_req_t *req)
+{
+    esp_http_client_config_t cfg = {
+        .url = GH_RELEASES_URL,
+        .crt_bundle_attach = esp_crt_bundle_attach,
+        .timeout_ms = 10000,
+    };
+    esp_http_client_handle_t client = esp_http_client_init(&cfg);
+    if (!client) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "HTTP client init failed");
+        return NULL;
+    }
+    esp_http_client_set_header(client, "User-Agent", "RRp38KLine-ESP32");
+    esp_http_client_set_header(client, "Accept", "application/vnd.github+json");
+    if (esp_http_client_open(client, 0) != ESP_OK) {
+        esp_http_client_cleanup(client);
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
+                            "GitHub unreachable - is the board on home WiFi?");
+        return NULL;
+    }
+    esp_http_client_fetch_headers(client);   /* -1 for a chunked body; only the status matters */
+    int status = esp_http_client_get_status_code(client);
+    if (status != 200) {
+        esp_http_client_close(client);
+        esp_http_client_cleanup(client);
+        char msg[64];
+        snprintf(msg, sizeof(msg), "GitHub API returned HTTP %d", status);
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, msg);
+        return NULL;
+    }
+    return client;
+}
+
+/* GET /api/ota/github/releases - every passive/tx image in the newest
+ * releases, newest first: [{tag,published,variant,version,asset,url,size}].
+ *
+ * The body is scanned byte by byte as it streams in instead of being parsed
+ * whole: the listing grows with every release, and holding it plus a JSON
+ * tree would eventually not fit (RemoteStart hit that). Key order makes it
+ * work: tag_name and published_at precede a release's assets, and within an
+ * asset size precedes browser_download_url, whose last path segment is the
+ * filename. */
+static esp_err_t h_ota_gh_releases(httpd_req_t *req)
+{
+    esp_http_client_handle_t client = gh_open_releases(req);
+    if (!client) {
+        return ESP_OK;
+    }
+    const size_t out_cap = 6144;
+    char *out = malloc(out_cap);
+    if (!out) {
+        esp_http_client_close(client);
+        esp_http_client_cleanup(client);
+        return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "out of memory");
+    }
+
+    gh_key_t k_tag  = { "\"tag_name\":\"",             12, 0 };
+    gh_key_t k_pub  = { "\"published_at\":\"",         16, 0 };
+    gh_key_t k_size = { "\"size\":",                    7, 0 };
+    gh_key_t k_url  = { "\"browser_download_url\":\"", 24, 0 };
+
+    enum { CAP_NONE = 0, CAP_TAG, CAP_PUB, CAP_SIZE, CAP_URL };
+    int    cap = CAP_NONE;
+    size_t caplen = 0;
+    char   tag[40] = "", pub[40] = "", url[220] = "";
+    long   asize = 0;
+    const size_t dlen = strlen(GH_ASSET_URL_PREFIX);
+
+    size_t n = 0;
+    out[n++] = '[';
+    bool first = true, full = false;
+    char buf[512];
+    int  r;
+
+    while (!full && (r = esp_http_client_read(client, buf, sizeof(buf))) > 0) {
+        for (int i = 0; i < r && !full; i++) {
+            char c = buf[i];
+            if (cap != CAP_NONE) {
+                bool done = (cap == CAP_SIZE) ? (c < '0' || c > '9') : (c == '"');
+                if (!done) {
+                    switch (cap) {   /* anything overlong is truncated */
+                    case CAP_TAG:  if (caplen < sizeof(tag) - 1) tag[caplen++] = c; break;
+                    case CAP_PUB:  if (caplen < sizeof(pub) - 1) pub[caplen++] = c; break;
+                    case CAP_URL:  if (caplen < sizeof(url) - 1) url[caplen++] = c; break;
+                    case CAP_SIZE: if (caplen < 12) { asize = asize * 10 + (c - '0'); caplen++; } break;
+                    }
+                    continue;
+                }
+                if (cap == CAP_TAG) tag[caplen] = '\0';
+                if (cap == CAP_PUB) pub[caplen] = '\0';
+                if (cap == CAP_URL) {
+                    url[caplen] = '\0';
+                    const char *slash = strrchr(url, '/');
+                    const char *base  = slash ? slash + 1 : url;
+                    char variant[16], ver[24];
+                    if (strncmp(url, GH_ASSET_URL_PREFIX, dlen) == 0 &&
+                        gh_parse_asset(base, variant, sizeof(variant), ver, sizeof(ver))) {
+                        char entry[480];
+                        int m = snprintf(entry, sizeof(entry),
+                            "%s{\"tag\":\"%s\",\"published\":\"%s\",\"variant\":\"%s\","
+                            "\"version\":\"%s\",\"asset\":\"%s\",\"url\":\"%s\",\"size\":%ld}",
+                            first ? "" : ",", tag, pub, variant, ver, base, url, asize);
+                        if (m > 0 && n + (size_t)m < out_cap - 2) {
+                            memcpy(out + n, entry, (size_t)m);
+                            n += (size_t)m;
+                            first = false;
+                        } else {
+                            full = true;   /* newest are already in */
+                        }
+                    }
+                }
+                cap = CAP_NONE;
+                /* fall through: the terminating byte still feeds the matchers */
+            }
+            /* Every matcher sees every byte, then at most one starts a capture. */
+            bool m_tag  = gh_key_feed(&k_tag,  c);
+            bool m_pub  = gh_key_feed(&k_pub,  c);
+            bool m_size = gh_key_feed(&k_size, c);
+            bool m_url  = gh_key_feed(&k_url,  c);
+            if      (m_tag)  { cap = CAP_TAG;  caplen = 0; }
+            else if (m_pub)  { cap = CAP_PUB;  caplen = 0; }
+            else if (m_size) { cap = CAP_SIZE; caplen = 0; asize = 0; }
+            else if (m_url)  { cap = CAP_URL;  caplen = 0; }
+        }
+    }
+    esp_http_client_close(client);
+    esp_http_client_cleanup(client);
+
+    out[n++] = ']';
+    out[n] = '\0';
+    httpd_resp_set_type(req, "application/json");
+    esp_err_t err = httpd_resp_sendstr(req, out);
+    free(out);
+    return err;
+}
+
+/* Background download + flash for a GitHub install. */
+static void gh_ota_task(void *arg)
+{
+    g_gh_ota_trace[0] = '\0';
+    esp_http_client_config_t http_cfg = {
+        .url = g_gh_ota_url,
+        .crt_bundle_attach = esp_crt_bundle_attach,
+        .timeout_ms = 15000,
+        /* GitHub redirects the asset to a signed URL around 2 KB long. The
+         * request line is built in buffer_size_tx (512 by default), so both
+         * buffers must be large or the redirect fails with a bare ESP_FAIL. */
+        .buffer_size    = 4096,
+        .buffer_size_tx = 4096,
+        .event_handler  = gh_http_event_handler,
+    };
+    esp_https_ota_config_t ota_cfg = { .http_config = &http_cfg };
+
+    esp_https_ota_handle_t handle = NULL;
+    esp_err_t err = esp_https_ota_begin(&ota_cfg, &handle);
+    if (err != ESP_OK) {
+        snprintf(g_gh_ota_err, sizeof(g_gh_ota_err), "begin:%s", esp_err_to_name(err));
+        g_gh_ota_state = GH_OTA_ERROR;
+        ESP_LOGE(TAG, "GitHub OTA begin failed: %s (%s)", esp_err_to_name(err), g_gh_ota_url);
+        vTaskDelete(NULL);
+        return;
+    }
+    do {
+        err = esp_https_ota_perform(handle);
+        int64_t read = esp_https_ota_get_image_len_read(handle);
+        if (g_gh_ota_total > 0) {
+            int pct = (int)(read * 100 / g_gh_ota_total);
+            g_gh_ota_percent = pct > 99 ? 99 : pct;
+        }
+    } while (err == ESP_ERR_HTTPS_OTA_IN_PROGRESS);
+
+    esp_err_t finish_err = ESP_FAIL;
+    bool complete = esp_https_ota_is_complete_data_received(handle);
+    if (err == ESP_OK && complete) {
+        finish_err = esp_https_ota_finish(handle);
+    } else {
+        esp_https_ota_abort(handle);
+    }
+    if (finish_err == ESP_OK) {
+        g_gh_ota_percent = 100;
+        g_gh_ota_state   = GH_OTA_SUCCESS;
+        ESP_LOGI(TAG, "GitHub OTA done, rebooting");
+        vTaskDelay(pdMS_TO_TICKS(500));
+        kline_release_bus();
+        esp_restart();
+    }
+    snprintf(g_gh_ota_err, sizeof(g_gh_ota_err), "%s:%s",
+             err == ESP_OK ? "finish" : "perform",
+             esp_err_to_name(err == ESP_OK ? finish_err : err));
+    g_gh_ota_state = GH_OTA_ERROR;
+    ESP_LOGE(TAG, "GitHub OTA failed: %s", g_gh_ota_err);
+    vTaskDelete(NULL);
+}
+
+/* POST /api/ota/github/install - form body url=...&size=N. The URL must be
+ * this repo's release-download path, so a crafted request cannot point the
+ * board at an arbitrary host. Returns at once; the page polls progress. */
+static esp_err_t h_ota_gh_install(httpd_req_t *req)
+{
+    if (g_gh_ota_state == GH_OTA_DOWNLOADING) {
+        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "install already running");
+    }
+    if (refuse_if_bus_busy(req)) {
+        return ESP_OK;
+    }
+    char body[400], url[256], size[16];
+    if (read_body(req, body, sizeof(body)) < 0) {
+        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad body");
+    }
+    form_field(body, "url", url, sizeof(url));
+    form_field(body, "size", size, sizeof(size));
+    if (strncmp(url, GH_ASSET_URL_PREFIX, strlen(GH_ASSET_URL_PREFIX)) != 0 ||
+        strstr(url, "..") || strchr(url, '?')) {
+        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "URL not from this repo's releases");
+    }
+    strlcpy(g_gh_ota_url, url, sizeof(g_gh_ota_url));
+    g_gh_ota_total   = strtoll(size, NULL, 10);
+    g_gh_ota_percent = 0;
+    g_gh_ota_err[0]  = '\0';
+    g_gh_ota_state   = GH_OTA_DOWNLOADING;
+    if (xTaskCreate(gh_ota_task, "gh_ota", 8192, NULL, 4, NULL) != pdPASS) {
+        g_gh_ota_state = GH_OTA_ERROR;
+        strlcpy(g_gh_ota_err, "could not start install task", sizeof(g_gh_ota_err));
+        return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, g_gh_ota_err);
+    }
+    ESP_LOGI(TAG, "GitHub OTA: %s", g_gh_ota_url);
+    return httpd_resp_sendstr(req, "OK");
+}
+
+/* GET /api/ota/github/progress */
+static esp_err_t h_ota_gh_progress(httpd_req_t *req)
+{
+    const char *st = g_gh_ota_state == GH_OTA_DOWNLOADING ? "downloading" :
+                     g_gh_ota_state == GH_OTA_SUCCESS     ? "success"     :
+                     g_gh_ota_state == GH_OTA_ERROR       ? "error"       : "idle";
+    char buf[900];
+    snprintf(buf, sizeof(buf), "{\"state\":\"%s\",\"percent\":%d,\"error\":\"%s\",\"trace\":\"%s\"}",
+             st, g_gh_ota_percent, g_gh_ota_err, g_gh_ota_trace);
+    httpd_resp_set_type(req, "application/json");
+    return httpd_resp_sendstr(req, buf);
+}
+
 /* ------------------------------------------------------------ start -- */
 
 esp_err_t web_server_start(void)
 {
     httpd_handle_t server = NULL;
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
-    cfg.max_uri_handlers = 16;      /* headroom: an exact-fit cap silently drops routes */
+    cfg.max_uri_handlers = 24;      /* headroom: an exact-fit cap silently drops routes */
     cfg.stack_size = 6144;
     cfg.lru_purge_enable = true;    /* abandoned connections must not wedge the server */
+    /* Half of a budget: httpd also holds a listener and a control socket, so
+     * 7 sessions use 9 of CONFIG_LWIP_MAX_SOCKETS (16). The rest is for the
+     * outbound TLS socket of a GitHub fetch; RemoteStart's installs failed
+     * when a polling page had taken every descriptor. */
+    cfg.max_open_sockets = 7;
     if (httpd_start(&server, &cfg) != ESP_OK) {
         ESP_LOGE(TAG, "HTTP server failed to start");
         return ESP_FAIL;
@@ -661,6 +1089,9 @@ esp_err_t web_server_start(void)
         { .uri = "/ap-save",     .method = HTTP_POST, .handler = h_ap_save   },
         { .uri = "/api/reboot",  .method = HTTP_POST, .handler = h_reboot    },
         { .uri = "/ota/upload",  .method = HTTP_POST, .handler = h_ota_upload},
+        { .uri = "/api/ota/github/releases", .method = HTTP_GET,  .handler = h_ota_gh_releases },
+        { .uri = "/api/ota/github/install",  .method = HTTP_POST, .handler = h_ota_gh_install  },
+        { .uri = "/api/ota/github/progress", .method = HTTP_GET,  .handler = h_ota_gh_progress },
     };
     for (size_t i = 0; i < sizeof(routes) / sizeof(routes[0]); i++) {
         if (httpd_register_uri_handler(server, &routes[i]) != ESP_OK) {

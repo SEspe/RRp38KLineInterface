@@ -1,0 +1,101 @@
+name: Web Flasher (GitHub Pages)
+
+# Publishes docs/webflash/ as a browser-based first-flash tool (esp-web-tools)
+# at https://sespe.github.io/RRp38KLineInterface/, rebuilt from master on every
+# push that touches the firmware. Only for the first USB flash of a board;
+# after that, updates go over the air from the board's OTA tab.
+# Adapted from RemoteStart's webflash workflow.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'main/**'
+      - 'CMakeLists.txt'
+      - 'partitions.csv'
+      - 'sdkconfig*.defaults'
+      - 'docs/webflash/**'
+      - '.github/workflows/webflash-pages.yml'
+  workflow_dispatch: {}
+
+env:
+  IDF_VERSION: v6.0.1
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build ${{ matrix.variant }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - { variant: passive, extra: '' }
+          - { variant: tx,      extra: 'sdkconfig.ncv.defaults' }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assemble config defaults
+        run: cat sdkconfig.defaults ${{ matrix.extra }} > sdkconfig.ci.defaults
+
+      - name: Build with ESP-IDF
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: ${{ env.IDF_VERSION }}
+          target: esp32c6
+          command: idf.py -B build_ci -D SDKCONFIG=sdkconfig.ci -D SDKCONFIG_DEFAULTS=sdkconfig.ci.defaults build
+
+      # The ESP32-C6 ROM loads the bootloader from 0x0; then partition table
+      # 0x8000, otadata 0xe000, app 0x10000 (partitions.csv).
+      - name: Stage firmware & manifest
+        run: |
+          V=${{ matrix.variant }}
+          VER=$(grep 'FIRMWARE_VERSION' main/version.h | grep -oP '"[^"]+"' | tr -d '"')
+          mkdir -p stage/$V
+          cp build_ci/bootloader/bootloader.bin           stage/$V/bootloader.bin
+          cp build_ci/partition_table/partition-table.bin stage/$V/partition-table.bin
+          cp build_ci/ota_data_initial.bin                stage/$V/ota_data_initial.bin
+          cp build_ci/RRp38KLineInterface.bin             stage/$V/RRp38KLine.bin
+          sed -e "s/__VARIANT__/$V/g" -e "s/__VERSION__/$VER/" \
+              docs/webflash/manifest.template.json > stage/$V/manifest.json
+          cat stage/$V/manifest.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: webflash-${{ matrix.variant }}
+          path: stage
+
+  deploy:
+    name: Assemble & deploy Pages
+    runs-on: ubuntu-latest
+    needs: build
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: webflash-*
+          path: _site
+          merge-multiple: true
+
+      - name: Add the flasher page
+        run: |
+          cp docs/webflash/index.html _site/index.html
+          find _site -type f | sort
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -137,12 +137,29 @@ console refuses them (`K-line busy (web)`).
 
 The **WiFi** tab sets the access point password, and optionally a home
 network to join as well (then also <http://rrp38.local/>). The **OTA
-Update** tab takes a `.bin` (`build/` or `build_ncv/RRp38KLineInterface.bin`)
-and reboots into it; the previous image stays in the other slot.
+Update** tab installs a release straight from GitHub (needs home WiFi with
+internet), or takes an uploaded `.bin` (`build/` or
+`build_ncv/RRp38KLineInterface.bin`). The previous image stays in the other
+slot. Updates are refused while a capture, init or send is using the
+K-line.
 
-**First flash of a new board: erase it fully first** (`esptool erase-flash`).
-A board flashed over old firmware logged a running access point that never
-appeared on air.
+## Releases and first flash
+
+Pushing a tag `vX.Y.Z` that matches `FIRMWARE_VERSION` in `main/version.h`
+makes GitHub Actions build and publish a release with two app images:
+
+| Asset | Build |
+|---|---|
+| `RRp38KLine_passive_vX.Y.Z.bin` | Transmit compiled out. For listening in the car |
+| `RRp38KLine_tx_vX.Y.Z.bin` | Transmit compiled in; still needs `arm --yes` on the USB console |
+
+Installing the other kind from the OTA tab switches a board between them.
+
+**First flash of a new board:** use the browser flasher at
+<https://sespe.github.io/RRp38KLineInterface/> (Chrome or Edge on desktop),
+rebuilt from `master` on every push, and **accept Erase device**. Or with
+the toolchain: `esptool erase-flash`, then flash. A board flashed over old
+firmware logged a running access point that never appeared on air.
 
 ## Console commands
 

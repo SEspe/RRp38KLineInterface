@@ -1,0 +1,101 @@
+name: Build & Release (ESP-IDF)
+
+# A v* tag builds both firmware variants and attaches them to a GitHub
+# Release. The board's OTA tab lists these and installs one directly:
+#
+#   RRp38KLine_passive_v<ver>.bin  transmit compiled out (Phase 4, in the car)
+#   RRp38KLine_tx_v<ver>.bin       transmit compiled in, still needs `arm --yes`
+#
+# Adapted from RemoteStart's release workflow.
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  IDF_VERSION: v6.0.1   # pin ESP-IDF version
+
+jobs:
+  build:
+    name: Build ${{ matrix.variant }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - { variant: passive, extra: '' }
+          - { variant: tx,      extra: 'sdkconfig.ncv.defaults' }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the tag matches version.h
+        run: |
+          VER=$(grep 'FIRMWARE_VERSION' main/version.h | grep -oP '"[^"]+"' | tr -d '"')
+          if [ "v${VER}" != "${GITHUB_REF_NAME}" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match FIRMWARE_VERSION ${VER} in main/version.h"
+            exit 1
+          fi
+          echo "VER=${VER}" >> $GITHUB_ENV
+
+      # One defaults file per variant, so the build command needs no quoting
+      # (SDKCONFIG_DEFAULTS normally takes a ;-separated list).
+      - name: Assemble config defaults
+        run: cat sdkconfig.defaults ${{ matrix.extra }} > sdkconfig.ci.defaults
+
+      - name: Build with ESP-IDF
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: ${{ env.IDF_VERSION }}
+          target: esp32c6
+          command: idf.py -B build_ci -D SDKCONFIG=sdkconfig.ci -D SDKCONFIG_DEFAULTS=sdkconfig.ci.defaults build
+
+      - name: Rename bin
+        run: |
+          BIN=RRp38KLine_${{ matrix.variant }}_v${VER}.bin
+          cp build_ci/RRp38KLineInterface.bin "$BIN"
+          echo "BIN=$BIN" >> $GITHUB_ENV
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.variant }}
+          path: ${{ env.BIN }}
+
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: build
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: RRp38KLine ${{ github.ref_name }}
+          body: |
+            ## RRp38KLine ${{ github.ref_name }}
+
+            ESP32-C6, built with ESP-IDF ${{ env.IDF_VERSION }}. Two app images:
+
+            | File | Build |
+            |---|---|
+            | `RRp38KLine_passive_*.bin` | Transmit compiled out. For listening in the car (Phase 4) |
+            | `RRp38KLine_tx_*.bin` | Transmit compiled in. Still needs `arm --yes` on the USB console |
+
+            ### Install over the air
+            On the board's page, **OTA Update** tab: **Check GitHub**, pick the
+            image, **Install selected**. Or download a `.bin` here and use
+            **Upload firmware**.
+
+            ### First flash of a new board (USB)
+            Use the browser flasher at https://sespe.github.io/RRp38KLineInterface/
+            (Chrome or Edge on desktop) and accept **Erase device**. The `.bin`
+            files here are app images only; a blank board also needs the
+            bootloader and partition table.
+          files: artifacts/*.bin
+          fail_on_unmatched_files: true

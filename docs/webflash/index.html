@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>RRp38KLine — Flash from Browser</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+<style>
+  body { font-family: system-ui, -apple-system, sans-serif; max-width: 720px; margin: 3rem auto; padding: 0 1rem; line-height: 1.5; color: #1a1a1a; }
+  h1 { font-size: 1.4rem; }
+  h2 { font-size: 1.05rem; margin: 0 0 .25rem; }
+  .units { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; margin: 1.5rem 0; }
+  .unit { border: 1px solid #ddd; border-radius: 8px; padding: 1rem 1.25rem; }
+  .unit p { margin: .25rem 0 .75rem; font-size: .9rem; color: #444; }
+  .meta { font-size: .8rem; color: #666; }
+  .chip { display: inline-block; font-size: .75rem; padding: .05rem .45rem; border-radius: 4px; background: #dcfce7; color: #166534; margin-left: .35rem; vertical-align: middle; }
+  .chip.tx { background: #fef3c7; color: #92400e; }
+  esp-web-install-button button {
+    font-size: 1rem; padding: .55rem 1.1rem; border-radius: 8px; border: none;
+    background: #2563eb; color: #fff; cursor: pointer;
+  }
+  esp-web-install-button button:hover { background: #1d4ed8; }
+  .note { background: #f5f5f5; border-radius: 8px; padding: 1rem 1.25rem; font-size: .9rem; }
+  .warn { background: #fff7ed; border-left: 4px solid #f59e0b; border-radius: 8px; padding: .75rem 1.25rem; font-size: .9rem; margin-bottom: 1rem; }
+  code { background: #eee; padding: .1rem .35rem; border-radius: 4px; font-size: .85em; }
+  a { color: #2563eb; }
+</style>
+</head>
+<body>
+<h1>RRp38KLine — flash a new board</h1>
+<p>ESP32-C6 K-line diagnostic interface for the Range Rover P38A. This page
+flashes the latest firmware from <code>master</code> onto a board straight from
+your browser, with no toolchain. Works in <strong>Chrome or Edge on
+desktop</strong> (Web Serial), over a USB cable.</p>
+
+<div class="warn">
+  <strong>Know your EKA code before connecting to the car.</strong> Malformed
+  traffic to the P38 BeCM is a documented cause of immobiliser lockout. Start
+  with the passive build: it cannot transmit at all.
+</div>
+
+<div class="units">
+  <div class="unit">
+    <h2>Passive <span class="chip">listen only</span></h2>
+    <p>Transmit compiled out. Sniff the K-line safely. Start here.</p>
+    <esp-web-install-button manifest="./passive/manifest.json">
+      <button slot="activate">Flash passive build</button>
+      <span slot="unsupported">Use Chrome or Edge on desktop (Web Serial).</span>
+      <span slot="not-allowed">This page must be served over HTTPS.</span>
+    </esp-web-install-button>
+    <div class="meta" data-manifest="./passive/manifest.json">Version: …</div>
+  </div>
+
+  <div class="unit">
+    <h2>TX <span class="chip tx">can transmit</span></h2>
+    <p>Transmit compiled in. Nothing is sent until <code>arm --yes</code> on the USB console.</p>
+    <esp-web-install-button manifest="./tx/manifest.json">
+      <button slot="activate">Flash TX build</button>
+      <span slot="unsupported">Use Chrome or Edge on desktop (Web Serial).</span>
+      <span slot="not-allowed">This page must be served over HTTPS.</span>
+    </esp-web-install-button>
+    <div class="meta" data-manifest="./tx/manifest.json">Version: …</div>
+  </div>
+</div>
+
+<div class="note">
+  <strong>Before you start</strong>
+  <ol>
+    <li>Plug the ESP32-C6 into <em>this</em> computer via its USB port. If no
+      port appears, hold <strong>BOOT</strong> while plugging in.</li>
+    <li>Click a <strong>Flash</strong> button and pick the board's serial port.</li>
+    <li><strong>Choose Erase device when offered.</strong> A board flashed over
+      earlier firmware has run with its WiFi access point reported up but
+      silent on air; a clean install avoids that.</li>
+    <li>After flashing, join the board's WiFi <code>RRp38-KLine</code>
+      (password <code>rrp38kline</code>) and open
+      <code>http://192.168.4.1/</code>. <strong>Change that password</strong>
+      on the WiFi tab.</li>
+  </ol>
+  <p style="margin-bottom:0">Every update after this goes over the air from
+  the board's <strong>OTA Update</strong> tab, including switching between the
+  passive and TX builds.</p>
+</div>
+
+<p style="font-size:.85rem;color:#666">Firmware built automatically from
+<a href="https://github.com/SEspe/RRp38KLineInterface">SEspe/RRp38KLineInterface</a>
+master via GitHub Actions.</p>
+
+<script>
+  document.querySelectorAll('[data-manifest]').forEach(function (el) {
+    fetch(el.dataset.manifest).then(function (r) { return r.json(); })
+      .then(function (m) { el.textContent = 'Version: ' + m.version; })
+      .catch(function () { el.textContent = 'Version: unavailable'; });
+  });
+</script>
+</body>
+</html>

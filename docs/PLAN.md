@@ -256,10 +256,17 @@ Steps:
    claim keeps a web sniff and console init/send off the UART at the same
    time. Passive by construction. *State machine and claim verified;
    frame display untested until there are bytes on RX.*
-5. GitHub Releases install + Firmware Versions card.
-6. CI: `release.yml` publishing **two assets per release**, the passive and
-   the TX build (e.g. `RRp38_passive_v1.0.0.bin`, `RRp38_tx_v1.0.0.bin`),
-   so OTA can switch between them without USB. Then `webflash-pages.yml`.
+5. ✅ Install from GitHub on the OTA tab: lists every passive and tx image
+   in the newest releases, preselects the board's own kind, warns when
+   the pick would switch build, shows download progress. The Firmware card
+   shows the variant and the newest version on GitHub. `/ota/upload` and
+   the GitHub install both refuse while the K-line is claimed.
+6. ✅ CI: `.github/workflows/release.yml` builds both variants on a `v*`
+   tag (failing if the tag ≠ `version.h`) and attaches
+   `RRp38KLine_passive_v<ver>.bin` and `RRp38KLine_tx_v<ver>.bin`.
+   `webflash-pages.yml` publishes an esp-web-tools flasher with both
+   variants at <https://sespe.github.io/RRp38KLineInterface/>. The repo was
+   made public for this (decision 32).
 
 **Checks specific to this project:**
 

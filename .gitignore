@@ -10,3 +10,5 @@ captures/
 build_*/
 sdkconfig.ncv
 sdkconfig.ncv.old
+sdkconfig.ci
+sdkconfig.ci.defaults

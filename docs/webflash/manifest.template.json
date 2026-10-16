@@ -1,0 +1,16 @@
+{
+  "name": "RRp38KLine __VARIANT__",
+  "version": "__VERSION__",
+  "new_install_prompt_erase": true,
+  "builds": [
+    {
+      "chipFamily": "ESP32-C6",
+      "parts": [
+        { "path": "bootloader.bin", "offset": 0 },
+        { "path": "partition-table.bin", "offset": 32768 },
+        { "path": "ota_data_initial.bin", "offset": 57344 },
+        { "path": "RRp38KLine.bin", "offset": 65536 }
+      ]
+    }
+  ]
+}
