@@ -214,7 +214,7 @@ reverse-engineering one.** Budget accordingly.
 
 ---
 
-## Track H — Web HMI and OTA ⬅ IN PROGRESS
+## Track H — Web HMI and OTA ✅ DONE
 
 **Goal:** use the board from a phone in the car, and update it without a
 USB cable. Independent of the K-line phases; can start any time. Decisions

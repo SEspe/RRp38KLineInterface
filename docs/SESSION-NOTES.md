@@ -581,7 +581,7 @@ bus. EN=20 now sits in the shared `sdkconfig.defaults`;
 
 Raised at the end of the session: a web interface on the C6 for use from a
 phone, and OTA updates. Planned, not implemented. Full plan in
-[PLAN.md, Track H](PLAN.md#track-h--web-hmi-and-ota--in-progress).
+[PLAN.md, Track H](PLAN.md#track-h--web-hmi-and-ota--done).
 
 The template is **RemoteStart's SlaveWallas**, which already runs on an
 ESP32-C6 under IDF v6.0.1: dual-slot partitions, `version.h` into the app
@@ -704,7 +704,72 @@ was spoiled by using the wrong one.
 | 30 | **One sniffer for console and web, plus a bus claim** | Two readers on one UART would each get half the bytes. A claim, named by owner, makes the refusal explicit |
 | 31 | **Web captures stop themselves** (default 10 min, max 60) | A forgotten capture would otherwise hold the bus and lock out the console indefinitely |
 
-## 23. Where this stands — stopping point, 2026-10-16
+## 23. Install from GitHub and release CI (Track H steps 5–6), v0.4.0
+
+**The repo was made public** (decision 32). It had been private, which
+breaks the RemoteStart pattern: the board fetches the release listing and
+the `.bin` without credentials, and Pages is not free for private repos.
+Before the switch the whole history was scanned for secrets: the only
+password is the documented AP default, the only personal detail the commit
+email RemoteStart already publishes, and the home network name is not in
+the repo. Pages was then set to build from Actions.
+
+**Board side** (`web_server.c`, adapted from SlaveWallas):
+
+- `GET /api/ota/github/releases` streams the GitHub listing byte by byte
+  (no JSON tree, so its cost does not grow with the release count) and
+  returns every `RRp38KLine_<variant>_v<ver>.bin`, both variants.
+- `POST /api/ota/github/install` (form body `url`, `size`) accepts only
+  this repo's release-download path, then `esp_https_ota` runs in its own
+  task with SlaveWallas's 4 KB TX buffer for GitHub's 2 KB signed redirect.
+  `GET /api/ota/github/progress` gives percent and an HTTP event trace.
+- `/api/version` now reports `variant` (`passive` / `tx`). The OTA tab
+  preselects the board's own kind and warns when an install would switch
+  build.
+- Both OTA paths return **409 while the K-line is claimed** (§22).
+- `CONFIG_LWIP_MAX_SOCKETS=16`, `max_open_sockets=7`: RemoteStart's fix
+  for TLS fetches failing when polling browsers held every socket.
+- Image grew to 1.24 MB (TLS, certificate bundle); 36 % of the slot free.
+
+**CI:**
+
+- `release.yml`: a `v*` tag builds passive and tx in a matrix, **fails if
+  the tag ≠ `FIRMWARE_VERSION`**, and attaches both images. The tx config
+  is `sdkconfig.defaults` + `sdkconfig.ncv.defaults` concatenated into one
+  file, so the build command needs no quoted `;` list. A local build with
+  that exact command matched `build_ncv` in size and config; the binaries
+  differ only in the timestamp.
+- `webflash-pages.yml` + `docs/webflash/`: esp-web-tools page with a
+  passive and a TX button, erase prompt on, built from `master`.
+
+**Verified, end to end:**
+
+| Check | Result |
+|---|---|
+| Push `master`, tag `v0.4.0` | Both workflows green; builds ~3¼ min each |
+| Release assets | `RRp38KLine_passive_v0.4.0.bin` 1 263 200 B, `RRp38KLine_tx_v0.4.0.bin` 1 266 848 B |
+| Pages | <https://sespe.github.io/RRp38KLineInterface/> HTTP 200, both manifests served |
+| Board lists releases | Both images, from the board itself |
+| Install passive from GitHub | ~13 s, rebooted into `app1`, status `txBuild:false`, MOSFET pin −1 |
+| Install tx from GitHub | Back to `txBuild:true`, MOSFET pin 14 |
+| Install or upload during a web sniff | HTTP 409 `K-line busy (web)` |
+| Install URL from another host | HTTP 400 |
+| Heap low-water after all this | 240 KB |
+
+Not tested: flashing a board through the Pages flasher (needs Web Serial
+in a desktop browser).
+
+CI warnings, non-blocking: `actions/checkout@v4` and `upload-artifact@v4`
+run on deprecated Node 20, and `ubuntu-latest` moves to Ubuntu 26 from
+2026-10-19. RemoteStart's workflows have the same.
+
+| # | Decision | Rationale |
+|---|----------|-----------|
+| 32 | **Repo public** | Same pattern as RemoteStart: credential-free release fetch and free Pages. History checked for secrets first |
+| 33 | **Release tag must equal `version.h`** | The board compares versions from asset names; a mismatched tag would publish an image that reports a different version than its name says |
+| 34 | **OTA refused while the K-line is claimed** | The reboot at the end of an install would cut a capture or session off mid-frame |
+
+## 24. Where this stands — stopping point, 2026-10-16
 
 **The right transceiver and a working ESP32 are both in hand.** A genuine
 NXP TJA1021 with no MCU in the way, and an ESP32-C6 running the firmware.
@@ -727,6 +792,9 @@ Nothing is blocked on a decision; the next steps are bench measurements.
 - Page works on a phone; OTA verified over home WiFi; Track H step 4
   (sniff view, bus claim) built and running as v0.3.0 (§22, decisions
   30–31). The board is on home WiFi at 192.168.10.218.
+- Track H complete (§23, decisions 32–34): install from GitHub, release
+  CI and the browser flasher, verified end to end. The repo is public.
+  The board runs the CI-built v0.4.0 tx image.
 
 **Next moves, in order:** all on the bench, none near the car, with 12 V on
 `VCC`/`GND` and the ESP32 *not* connected:
@@ -749,7 +817,8 @@ Nothing is blocked on a decision; the next steps are bench measurements.
 2. **Sniff frame display:** during a web capture, touch a wire from GND to
    GPIO19 a few times. Each touch should appear as a frame of `00` bytes.
    Or wait for real traffic once the transceiver is wired.
-3. Then steps 5–6: GitHub install, CI.
+3. ~~Steps 5–6~~ done (§23). New releases: bump `FIRMWARE_VERSION`,
+   commit, push, tag `v<same>`.
 4. Once the transceiver is wired: re-run the echo test with WiFi up.
 
 **Still waiting on:** bypass MOSFET parts (2N7002/BSS138, 1 kΩ, 100 kΩ),
