@@ -3,7 +3,8 @@
  *
  * Handlers adapted from RemoteStart/SlaveWallas (same chip, same IDF).
  * Deliberately read-only towards the K-line: there is no route that arms,
- * inits, sends or scans. Those stay on the USB console (decision 25).
+ * inits, sends or scans. Those stay on the USB console (decision 25). The
+ * one K-line action here is starting and stopping a passive sniff.
  * GitHub-release install is Track H step 5 and not here yet.
  */
 #include <stdio.h>
@@ -21,6 +22,7 @@
 
 #include "kline.h"
 #include "net.h"
+#include "sniff.h"
 #include "version.h"
 #include "web_server.h"
 
@@ -64,11 +66,19 @@ static const char INDEX_HTML[] =
 "display:flex;justify-content:space-between;font-size:.85rem}"
 ".net span:last-child{font-size:.72rem;color:#aaa}"
 ".prog{margin-top:10px;font-size:.85rem;color:#e94560;min-height:1.2em}"
+".ctl{display:flex;gap:12px;flex-wrap:wrap}"
+".ctl label{margin-top:0}"
+"select,input[type=number]{display:block;margin-top:4px;padding:7px;background:#0f3460;"
+"border:1px solid #444;border-radius:5px;color:#eee;width:120px}"
+"pre.log{font-family:Consolas,Menlo,monospace;font-size:.75rem;line-height:1.45;"
+"max-height:60vh;overflow:auto;white-space:pre;background:#0b1730;padding:10px;border-radius:5px}"
+"pre.log .t{color:#888}pre.log .g{color:#e9b400}"
 "</style></head><body>"
 "<div class='hdr'><h1>RR P38 K-line</h1>"
 "<span class='v'>" FIRMWARE_NAME " v" FIRMWARE_VERSION "</span></div>"
 "<div class='tabs'>"
 "<button class='tab on' onclick='show(\"status\",this)'>Status</button>"
+"<button class='tab' onclick='show(\"sniff\",this)'>Sniff</button>"
 "<button class='tab' onclick='show(\"wifi\",this)'>WiFi</button>"
 "<button class='tab' onclick='show(\"ota\",this)'>OTA Update</button>"
 "</div>"
@@ -79,6 +89,20 @@ static const char INDEX_HTML[] =
 "<div class='card'><h3>Network</h3><div class='grid' id='nw'>&hellip;</div></div>"
 "<div class='card'><h3>System</h3><div class='grid' id='sy'>&hellip;</div></div>"
 "<div class='ts' id='sts'></div></div>"
+
+"<div id='sniff' class='pane'>"
+"<div class='card'><h3>Passive capture</h3>"
+"<p class='note'>Listens only; nothing is transmitted. Bytes are split into frames on silent gaps. "
+"While a capture runs, console init and send commands are refused.</p>"
+"<div class='ctl'>"
+"<label>Duration<select id='sd'><option value='60'>1 min</option><option value='300'>5 min</option>"
+"<option value='600' selected>10 min</option><option value='1800'>30 min</option><option value='3600'>60 min</option></select></label>"
+"<label>Split gap (ms)<input id='sg' type='number' min='1' max='1000' value='10'></label></div>"
+"<button class='btn' id='sb' onclick='sniffGo()'>Start</button> "
+"<button class='btn s' onclick='sniffClear()'>Clear</button> "
+"<button class='btn s' onclick='sniffSave()'>Download</button>"
+"<div class='ts' id='ss'></div></div>"
+"<div class='card'><h3>Frames</h3><pre class='log' id='sl'></pre></div></div>"
 
 "<div id='wifi' class='pane'>"
 "<div class='card'><h3>Home WiFi</h3>"
@@ -115,7 +139,7 @@ static const char INDEX_HTML[] =
 "function show(id,b){document.querySelectorAll('.pane').forEach(e=>e.classList.remove('on'));"
 "document.querySelectorAll('.tab').forEach(e=>e.classList.remove('on'));"
 "document.getElementById(id).classList.add('on');b.classList.add('on');"
-"if(id==='ota')ver();}"
+"if(id==='ota')ver();if(id==='sniff')sniffPoll();}"
 "function hms(){var d=new Date(),p=n=>(n<10?'0':'')+n;"
 "return p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds());}"
 "function up(s){var d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);"
@@ -161,6 +185,29 @@ static const char INDEX_HTML[] =
 "x.upload.onprogress=e=>{if(e.lengthComputable)p.textContent='Uploading: '+Math.round(e.loaded/e.total*100)+'%';};"
 "x.onload=()=>{p.textContent=x.status===200?'Done. Rebooting \\u2014 reload in about 10 s.':'Error: '+x.status+' '+x.responseText;};"
 "x.onerror=()=>{p.textContent='Upload error';};x.send(f);}"
+"var SQ=0,SS=-1,SL=[],SR=false;"
+"function pad(s,n){s=String(s);while(s.length<n)s=' '+s;return s;}"
+"function sniffPoll(){fetch('/api/sniff?since='+SQ).then(r=>r.json()).then(d=>{"
+"if(d.session!==SS){if(SS!==-1&&d.frames+d.f.length>0)SL.push('--- capture '+d.session+' ---');SS=d.session;}"
+"d.f.forEach(f=>{SQ=Math.max(SQ,f[0]);"
+"SL.push('['+pad((f[1]/1000).toFixed(3),9)+'s +'+pad(f[2],5)+'ms] '+f[4]+(f[3]>" "48" "?' \\u2026 ('+f[3]+' bytes)':''));});"
+"while(SL.length>2000)SL.shift();"
+"if(d.f.length){var e=document.getElementById('sl'),b=e.scrollTop+e.clientHeight>=e.scrollHeight-20;"
+"e.textContent=SL.join('\\n');if(b)e.scrollTop=e.scrollHeight;}"
+"SR=d.running;document.getElementById('sb').textContent=SR?'Stop':'Start';"
+"document.getElementById('ss').textContent=SR?'Capturing ('+d.owner+'), '+d.remain+' s left \\u2014 '"
+"+d.frames+' frames, '+d.bytes+' bytes, split at '+d.gap+' ms'"
+":(d.owner?'K-line busy: '+d.owner:'Idle \\u2014 last capture '+d.frames+' frames, '+d.bytes+' bytes');"
+"if(d.f.length===32)sniffPoll();}).catch(()=>{});}"
+"function sniffGo(){if(SR){fetch('/api/sniff/stop',{method:'POST'}).then(sniffPoll);return;}"
+"var q='secs='+document.getElementById('sd').value+'&gap='+document.getElementById('sg').value;"
+"fetch('/api/sniff/start?'+q,{method:'POST'}).then(r=>r.ok?sniffPoll():r.text().then(t=>{"
+"document.getElementById('ss').textContent='Could not start: '+t;}));}"
+"function sniffClear(){SL=[];document.getElementById('sl').textContent='';}"
+"function sniffSave(){var a=document.createElement('a'),d=new Date();"
+"a.href=URL.createObjectURL(new Blob([SL.join('\\n')+'\\n'],{type:'text/plain'}));"
+"a.download='kline-sniff-'+d.toISOString().slice(0,19).replace(/[:T]/g,'-')+'.txt';a.click();}"
+"setInterval(()=>{if(document.getElementById('sniff').classList.contains('on'))sniffPoll();},700);"
 "setInterval(()=>{if(document.getElementById('status').classList.contains('on'))stat();},2000);"
 "stat();"
 "</script></body></html>";
@@ -448,6 +495,87 @@ static esp_err_t h_ap_save(httpd_req_t *req)
     return ESP_OK;
 }
 
+/* GET /api/sniff?since=N - capture state plus frames newer than N, at most
+ * 32 per call; the page asks again at once when it gets a full batch.
+ * Frames are [seq, t_ms, gap_ms, len, "hex"]. */
+#define SNIFF_BATCH 32
+
+static esp_err_t h_sniff_get(httpd_req_t *req)
+{
+    char q[48], v[16];
+    uint32_t since = 0;
+    if (httpd_req_get_url_query_str(req, q, sizeof(q)) == ESP_OK &&
+        httpd_query_key_value(q, "since", v, sizeof(v)) == ESP_OK) {
+        since = strtoul(v, NULL, 10);
+    }
+
+    sniff_state_t st;
+    sniff_get_state(&st);
+    sniff_frame_t *fr = malloc(SNIFF_BATCH * sizeof(*fr));
+    size_t cap = 256 + SNIFF_BATCH * (SNIFF_FRAME_MAX * 3 + 48);
+    char *buf = malloc(cap);
+    if (!fr || !buf) {
+        free(fr);
+        free(buf);
+        return httpd_resp_send_500(req);
+    }
+    size_t nf = sniff_frames_since(since, fr, SNIFF_BATCH);
+
+    size_t n = snprintf(buf, cap,
+        "{\"running\":%s,\"owner\":\"%s\",\"session\":%lu,\"seq\":%lu,\"bytes\":%lu,"
+        "\"frames\":%lu,\"gap\":%lu,\"remain\":%lu,\"f\":[",
+        st.running ? "true" : "false", st.owner, (unsigned long)st.session,
+        (unsigned long)st.last_seq, (unsigned long)st.bytes, (unsigned long)st.frames,
+        (unsigned long)st.gap_ms, (unsigned long)st.remain_s);
+    for (size_t i = 0; i < nf; i++) {
+        const sniff_frame_t *f = &fr[i];
+        n += snprintf(buf + n, cap - n, "%s[%lu,%lu,%lu,%u,\"", i ? "," : "",
+                      (unsigned long)f->seq, (unsigned long)f->t_ms,
+                      (unsigned long)f->gap_ms, (unsigned)f->len);
+        size_t kept = f->len < SNIFF_FRAME_MAX ? f->len : SNIFF_FRAME_MAX;
+        for (size_t j = 0; j < kept; j++) {
+            n += snprintf(buf + n, cap - n, j ? " %02X" : "%02X", f->d[j]);
+        }
+        n += snprintf(buf + n, cap - n, "\"]");
+    }
+    snprintf(buf + n, cap - n, "]}");
+    free(fr);
+    httpd_resp_set_type(req, "application/json");
+    esp_err_t err = httpd_resp_sendstr(req, buf);
+    free(buf);
+    return err;
+}
+
+/* POST /api/sniff/start?secs=600&gap=10 - passive only. */
+static esp_err_t h_sniff_start(httpd_req_t *req)
+{
+    char q[48], v[16];
+    uint32_t secs = 600, gap = 10;
+    if (httpd_req_get_url_query_str(req, q, sizeof(q)) == ESP_OK) {
+        if (httpd_query_key_value(q, "secs", v, sizeof(v)) == ESP_OK) {
+            secs = strtoul(v, NULL, 10);
+        }
+        if (httpd_query_key_value(q, "gap", v, sizeof(v)) == ESP_OK) {
+            gap = strtoul(v, NULL, 10);
+        }
+    }
+    if (sniff_start_bg(secs, gap) != ESP_OK) {
+        char msg[48];
+        snprintf(msg, sizeof(msg), "K-line busy (%s)", kline_owner()[0] ? kline_owner() : "not started");
+        httpd_resp_set_status(req, "409 Conflict");
+        return httpd_resp_sendstr(req, msg);
+    }
+    return httpd_resp_sendstr(req, "OK");
+}
+
+/* POST /api/sniff/stop - ends a capture, whether started here or on the
+ * console. */
+static esp_err_t h_sniff_stop(httpd_req_t *req)
+{
+    sniff_stop();
+    return httpd_resp_sendstr(req, "OK");
+}
+
 /* POST /api/reboot */
 static esp_err_t h_reboot(httpd_req_t *req)
 {
@@ -526,6 +654,9 @@ esp_err_t web_server_start(void)
         { .uri = "/api/status",  .method = HTTP_GET,  .handler = h_status    },
         { .uri = "/api/version", .method = HTTP_GET,  .handler = h_version   },
         { .uri = "/api/scan",    .method = HTTP_GET,  .handler = h_scan      },
+        { .uri = "/api/sniff",   .method = HTTP_GET,  .handler = h_sniff_get },
+        { .uri = "/api/sniff/start", .method = HTTP_POST, .handler = h_sniff_start },
+        { .uri = "/api/sniff/stop",  .method = HTTP_POST, .handler = h_sniff_stop  },
         { .uri = "/wifi-save",   .method = HTTP_POST, .handler = h_wifi_save },
         { .uri = "/ap-save",     .method = HTTP_POST, .handler = h_ap_save   },
         { .uri = "/api/reboot",  .method = HTTP_POST, .handler = h_reboot    },

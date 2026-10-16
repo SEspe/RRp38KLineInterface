@@ -581,7 +581,7 @@ bus. EN=20 now sits in the shared `sdkconfig.defaults`;
 
 Raised at the end of the session: a web interface on the C6 for use from a
 phone, and OTA updates. Planned, not implemented. Full plan in
-[PLAN.md, Track H](PLAN.md#track-h--web-hmi-and-ota--in-progress-steps-13-done).
+[PLAN.md, Track H](PLAN.md#track-h--web-hmi-and-ota--in-progress).
 
 The template is **RemoteStart's SlaveWallas**, which already runs on an
 ESP32-C6 under IDF v6.0.1: dual-slot partitions, `version.h` into the app
@@ -656,7 +656,55 @@ within 10 s**, WPA2, channel 1, 99 % signal.
 **Not yet tested:** the page itself and an OTA upload. Joining the AP from
 this PC would cut it off the home network, so that test is for a phone.
 
-## 22. Where this stands — stopping point, 2026-10-16
+## 22. Phone test, first OTA, and the sniff view (Track H step 4)
+
+The page works on a phone. The board was then put on home WiFi
+(`192.168.10.218`), so this PC can reach its API directly.
+
+**First OTA, over home WiFi:** v0.3.0 uploaded with `curl` to
+`/ota/upload`. 1.07 MB in 4 s, the board answered again 2 s later with
+Installed 0.3.0, Stored 0.2.0, running from `app1`. Step 3 is verified.
+
+**Step 4, the sniff view:**
+
+- `main/sniff.c` replaces `kline_sniff()`. One capture loop for both the
+  console and the page. It splits on gaps as before, keeps the last 64
+  frames (up to 48 bytes each; longer ones are marked with their real
+  length) in a ring buffer, and prints in the old format when run from the
+  console.
+- **Sniff** tab: duration (1 to 60 min, default 10) and split gap, Start
+  and Stop, the frames live, and Download as `.txt`. `GET /api/sniff?since=N`
+  returns new frames in batches of 32; `POST /api/sniff/start|stop`.
+- **Bus claim** (`kline_claim()` / `kline_unclaim()` / `kline_owner()`):
+  whoever reads or writes the UART holds it. The console's `slowinit`,
+  `fastinit`, `scan` and `send` claim it for their whole run, and `sniff`
+  claims it inside `sniff_run()`. It is a binary semaphore rather than a
+  mutex, because a web capture is claimed from the HTTP task's request
+  and released by the sniff task when it ends.
+- Web Stop ends a console `sniff` too. The console cannot stop its own
+  sniff before its time is up, so this is useful.
+- The capture task runs at priority 6, above the HTTP server, so a busy
+  page cannot delay byte reads. Timestamps are taken when the task reads a
+  byte, not when it arrived, so WiFi adds a few ms of jitter near the
+  split threshold.
+
+**Verified:** start → `running`, owner `web`, time counting down; a second
+start → HTTP 409 `K-line busy (web)`; the console's `slowinit 33` and
+`sniff` refused with the same message during a web capture; Stop frees the
+bus and a console `sniff` then runs; a 3 s capture ends by itself.
+**Not verified:** the frame display, because nothing drives RX yet.
+
+A tooling note: the `console_check.py` helper resets the board on purpose
+(to catch the banner). A second helper, `console_cmd.py`, opens the port
+with DTR/RTS held low and does not reset it. The first test of the claim
+was spoiled by using the wrong one.
+
+| # | Decision | Rationale |
+|---|----------|-----------|
+| 30 | **One sniffer for console and web, plus a bus claim** | Two readers on one UART would each get half the bytes. A claim, named by owner, makes the refusal explicit |
+| 31 | **Web captures stop themselves** (default 10 min, max 60) | A forgotten capture would otherwise hold the bus and lock out the console indefinitely |
+
+## 23. Where this stands — stopping point, 2026-10-16
 
 **The right transceiver and a working ESP32 are both in hand.** A genuine
 NXP TJA1021 with no MCU in the way, and an ESP32-C6 running the firmware.
@@ -676,6 +724,9 @@ Nothing is blocked on a decision; the next steps are bench measurements.
   (§19, decisions 24–27). Read-only from the web at first; AP + STA.
 - Track H steps 1–3 built, flashed, AP on air after a full erase (§20,
   §21, decisions 28–29). Firmware is now v0.2.0 with OTA partitions.
+- Page works on a phone; OTA verified over home WiFi; Track H step 4
+  (sniff view, bus claim) built and running as v0.3.0 (§22, decisions
+  30–31). The board is on home WiFi at 192.168.10.218.
 
 **Next moves, in order:** all on the bench, none near the car, with 12 V on
 `VCC`/`GND` and the ESP32 *not* connected:
@@ -693,12 +744,12 @@ Nothing is blocked on a decision; the next steps are bench measurements.
 
 **Web HMI (Track H), in parallel:**
 
-1. **Phone test:** join `RRp38-KLine` (password `rrp38kline`), open
-   `192.168.4.1`. Check the three tabs, then change the AP password.
-2. **OTA test:** upload `build/RRp38KLineInterface.bin` (the passive
-   build) from the OTA tab; Installed should stay 0.2.0 and Running should
-   move to the other slot. Then upload `build_ncv/` to go back.
-3. Then steps 4–6: sniff view, GitHub install, CI.
+1. ~~Phone test~~ done; ~~OTA test~~ done (§22). **Change the AP
+   password** from the default.
+2. **Sniff frame display:** during a web capture, touch a wire from GND to
+   GPIO19 a few times. Each touch should appear as a frame of `00` bytes.
+   Or wait for real traffic once the transceiver is wired.
+3. Then steps 5–6: GitHub install, CI.
 4. Once the transceiver is wired: re-run the echo test with WiFi up.
 
 **Still waiting on:** bypass MOSFET parts (2N7002/BSS138, 1 kΩ, 100 kΩ),

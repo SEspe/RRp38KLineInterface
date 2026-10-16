@@ -16,6 +16,7 @@
 #include "argtable3/argtable3.h"
 
 #include "kline.h"
+#include "sniff.h"
 
 /* Candidate 5-baud init addresses for the P38A.
  *
@@ -147,7 +148,10 @@ static int cmd_sniff(int argc, char **argv)
     uint32_t gap  = (sniff_args.gap->count > 0)
                         ? (uint32_t)sniff_args.gap->ival[0] : 10;
 
-    kline_sniff(secs, gap);
+    if (sniff_run(secs, gap, true) != ESP_OK) {
+        printf("K-line busy (%s) - stop that first.\n", kline_owner());
+        return 1;
+    }
     return 0;
 }
 
@@ -346,6 +350,28 @@ static int cmd_send(int argc, char **argv)
 }
 
 /* ------------------------------------------------------------------ */
+/* bus claim                                                           */
+/* ------------------------------------------------------------------ */
+
+/* Commands that use the UART hold the bus for their whole run, so a sniff
+ * started from the web page cannot read their bytes, nor they its. */
+static int run_claimed(int (*fn)(int, char **), int argc, char **argv)
+{
+    if (!kline_claim("console")) {
+        printf("K-line busy (%s) - stop that first.\n", kline_owner());
+        return 1;
+    }
+    int ret = fn(argc, argv);
+    kline_unclaim();
+    return ret;
+}
+
+static int cmd_slowinit_claimed(int argc, char **argv) { return run_claimed(cmd_slowinit, argc, argv); }
+static int cmd_fastinit_claimed(int argc, char **argv) { return run_claimed(cmd_fastinit, argc, argv); }
+static int cmd_scan_claimed(int argc, char **argv)     { return run_claimed(cmd_scan, argc, argv); }
+static int cmd_send_claimed(int argc, char **argv)     { return run_claimed(cmd_send, argc, argv); }
+
+/* ------------------------------------------------------------------ */
 /* registration                                                        */
 /* ------------------------------------------------------------------ */
 
@@ -396,7 +422,7 @@ void kline_console_register(void)
         .command  = "slowinit",
         .help     = "ISO 9141-2 five-baud address initialisation",
         .hint     = NULL,
-        .func     = &cmd_slowinit,
+        .func     = &cmd_slowinit_claimed,
         .argtable = &slowinit_args,
     };
     ESP_ERROR_CHECK(esp_console_cmd_register(&slowinit_cmd));
@@ -405,7 +431,7 @@ void kline_console_register(void)
         .command = "fastinit",
         .help    = "KWP2000 fast init wake-up pattern",
         .hint    = NULL,
-        .func    = &cmd_fastinit,
+        .func    = &cmd_fastinit_claimed,
     };
     ESP_ERROR_CHECK(esp_console_cmd_register(&fastinit_cmd));
 
@@ -416,7 +442,7 @@ void kline_console_register(void)
         .command  = "scan",
         .help     = "Try slow init across addresses; no range = candidate list",
         .hint     = NULL,
-        .func     = &cmd_scan,
+        .func     = &cmd_scan_claimed,
         .argtable = &scan_args,
     };
     ESP_ERROR_CHECK(esp_console_cmd_register(&scan_cmd));
@@ -429,7 +455,7 @@ void kline_console_register(void)
         .command  = "send",
         .help     = "Send a raw frame and print any response",
         .hint     = NULL,
-        .func     = &cmd_send,
+        .func     = &cmd_send_claimed,
         .argtable = &send_args,
     };
     ESP_ERROR_CHECK(esp_console_cmd_register(&send_cmd));

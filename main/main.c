@@ -23,6 +23,7 @@
 
 #include "kline.h"
 #include "net.h"
+#include "sniff.h"
 #include "version.h"
 #include "web_server.h"
 
@@ -57,6 +58,7 @@ void app_main(void)
     print_banner();
 
     ESP_ERROR_CHECK(kline_start());
+    sniff_init();
 
     /* Web HMI: own access point always, home WiFi when configured. A
      * failure here must not take the console down with it. */

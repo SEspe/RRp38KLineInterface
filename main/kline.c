@@ -4,6 +4,7 @@
 #include <inttypes.h>
 
 #include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "driver/uart.h"
 #include "driver/gpio.h"
@@ -36,6 +37,11 @@ static const char *TAG = "kline";
 
 static bool s_started  = false;
 static bool s_tx_armed = false;
+
+/* Bus ownership: one user of the UART at a time (console command or web
+ * sniff). Created once and never deleted, so it outlives kline_stop(). */
+static SemaphoreHandle_t s_bus_lock;
+static const char *volatile s_bus_owner;
 
 /* ------------------------------------------------------------------ */
 /* Timing and bit-bang helpers                                         */
@@ -136,6 +142,15 @@ esp_err_t kline_start(void)
 {
     if (s_started) {
         return ESP_OK;
+    }
+    if (!s_bus_lock) {
+        /* Binary, not a mutex: a claim may be released by a different task
+         * from the one that took it (a web sniff ends in its own task). */
+        s_bus_lock = xSemaphoreCreateBinary();
+        if (!s_bus_lock) {
+            return ESP_ERR_NO_MEM;
+        }
+        xSemaphoreGive(s_bus_lock);
     }
 
     const uart_config_t cfg = {
@@ -238,6 +253,27 @@ void kline_release_bus(void)
 bool kline_started(void)
 {
     return s_started;
+}
+
+bool kline_claim(const char *who)
+{
+    if (!s_bus_lock || xSemaphoreTake(s_bus_lock, 0) != pdTRUE) {
+        return false;
+    }
+    s_bus_owner = who;
+    return true;
+}
+
+void kline_unclaim(void)
+{
+    s_bus_owner = NULL;
+    xSemaphoreGive(s_bus_lock);
+}
+
+const char *kline_owner(void)
+{
+    const char *o = s_bus_owner;
+    return o ? o : "";
 }
 
 bool kline_tx_armed(void)
@@ -487,61 +523,6 @@ esp_err_t kline_fast_init(void)
     ESP_LOGI(TAG, "fast init wake-up done - send StartCommunication now");
     return ESP_OK;
 #endif
-}
-
-/* ------------------------------------------------------------------ */
-/* Passive sniffer                                                     */
-/* ------------------------------------------------------------------ */
-
-void kline_sniff(uint32_t duration_s, uint32_t gap_split_ms)
-{
-    if (!s_started) {
-        printf("k-line not started\n");
-        return;
-    }
-
-    kline_flush_rx();
-
-    const int64_t end_us  = esp_timer_get_time() + (int64_t)duration_s * 1000000;
-    int64_t       last_us = 0;
-    int           col     = 0;
-    uint32_t      total   = 0;
-
-    printf("listening %" PRIu32 "s, splitting frames on gaps > %" PRIu32 "ms\n",
-           duration_s, gap_split_ms);
-    printf("(passive - nothing is transmitted)\n\n");
-
-    while (esp_timer_get_time() < end_us) {
-        uint8_t b;
-        if (uart_read_bytes(KL_PORT, &b, 1, pdMS_TO_TICKS(100)) != 1) {
-            continue;
-        }
-
-        int64_t now_us = esp_timer_get_time();
-        int64_t gap_ms = last_us ? (now_us - last_us) / 1000 : -1;
-
-        if (col == 0 || (gap_ms >= 0 && gap_ms > (int64_t)gap_split_ms)) {
-            if (col != 0) {
-                printf("\n");
-            }
-            printf("[%8.3fs +%5lldms] ", (double)now_us / 1e6,
-                   (long long)(gap_ms < 0 ? 0 : gap_ms));
-            col = 0;
-        }
-
-        printf("%02X ", b);
-        col++;
-        total++;
-
-        if (col >= 24) {
-            printf("\n                     ");
-            col = 1;
-        }
-        last_us = now_us;
-        fflush(stdout);
-    }
-
-    printf("\n\n%" PRIu32 " bytes captured\n", total);
 }
 
 /* ------------------------------------------------------------------ */

@@ -214,7 +214,7 @@ reverse-engineering one.** Budget accordingly.
 
 ---
 
-## Track H — Web HMI and OTA ⬅ IN PROGRESS (steps 1–3 done)
+## Track H — Web HMI and OTA ⬅ IN PROGRESS
 
 **Goal:** use the board from a phone in the car, and update it without a
 USB cable. Independent of the K-line phases; can start any time. Decisions
@@ -248,10 +248,14 @@ Steps:
    always-on AP serves the normal page, which has the WiFi tab.
 3. ✅ Web server: status page, `/api/status` (the console's `status`
    fields), WiFi and AP-password settings, OTA upload, reboot.
-   *Built and flashed 2026-10-16; AP seen from a PC. Page and an OTA
-   upload not yet tested from a phone.*
-4. Sniff view: the sniffer writes frames into a ring buffer as well as the
-   console; the page polls `/api/sniff`. Passive by construction.
+   *Page checked from a phone 2026-10-16. OTA upload verified over home
+   WiFi: v0.2.0 → v0.3.0, 1.07 MB in 4 s, back up in 2 s.*
+4. ✅ Sniff view: one sniffer (`sniff.c`) shared by the console and a
+   **Sniff** tab, a 64-frame ring the page polls via `/api/sniff`, start and
+   stop from the page (default 10 min, max 60), download as `.txt`. A bus
+   claim keeps a web sniff and console init/send off the UART at the same
+   time. Passive by construction. *State machine and claim verified;
+   frame display untested until there are bytes on RX.*
 5. GitHub Releases install + Firmware Versions card.
 6. CI: `release.yml` publishing **two assets per release**, the passive and
    the TX build (e.g. `RRp38_passive_v1.0.0.bin`, `RRp38_tx_v1.0.0.bin`),

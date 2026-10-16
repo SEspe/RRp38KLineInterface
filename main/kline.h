@@ -53,6 +53,14 @@ bool      kline_started(void);
  * without touching the UART. Used before a reboot from the web side. */
 void      kline_release_bus(void);
 
+/* Bus ownership. Anything that reads or writes the UART - a console
+ * command, a web-started sniff - claims it first, so two tasks never
+ * interleave on the one wire. Non-blocking: false means someone else holds
+ * it, and kline_owner() says who. `who` must be a string literal. */
+bool        kline_claim(const char *who);
+void        kline_unclaim(void);
+const char *kline_owner(void);   /* "" when free */
+
 /* Runtime transmit gate. Independent of CONFIG_RRP38_ALLOW_TX, which is a
  * compile-time gate; both must permit before any byte leaves the ESP32. */
 bool      kline_tx_armed(void);
@@ -84,10 +92,6 @@ esp_err_t kline_fast_init(void);
 /* Simple 8-bit modulo-256 sum, the checksum used by ISO 9141 and by most
  * Land Rover proprietary framing. */
 uint8_t   kline_checksum(const uint8_t *buf, size_t len);
-
-/* Passive listener. Dumps bytes to the console with inter-byte gap timing so
- * frame boundaries become visible. Never transmits. Blocks for duration_s. */
-void      kline_sniff(uint32_t duration_s, uint32_t gap_split_ms);
 
 /* Hex helper: parses "81 12 F1 81" or "8112F181" into buf. Returns count
  * or -1 on a malformed string. */

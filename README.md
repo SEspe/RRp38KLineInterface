@@ -62,7 +62,7 @@ Both must be open before a single byte leaves the ESP32.
 
 Current status: **firmware retargeted to ESP32-C6, flashed, and answering
 on the console; a plain TJA1021 breakout (no MCU) received 2026-10-16,
-ready for bench checks. Web HMI + OTA upload built and flashed (Track H steps 1–3), phone test pending** (PLAN.md Phase 2 and Track H, HARDWARE.md).
+ready for bench checks. Web HMI with OTA and a live sniff view running as v0.3.0 (Track H steps 1–4)** (PLAN.md Phase 2 and Track H, HARDWARE.md).
 
 ## Hardware
 
@@ -129,8 +129,11 @@ The board runs its own WiFi access point, always:
 | Page | <http://192.168.4.1/> |
 
 The **Status** tab shows the K-line build, armed state and pins, the
-network, and heap. It is **read-only**: nothing on the page can arm,
-init, send or scan. Those stay on the USB console.
+network, and heap. The **Sniff** tab runs a passive capture and shows the
+frames live, split on silent gaps; it can download them as a `.txt`. The
+page is otherwise **read-only**: nothing on it can arm, init, send or
+scan. Those stay on the USB console, and while a web capture runs the
+console refuses them (`K-line busy (web)`).
 
 The **WiFi** tab sets the access point password, and optionally a home
 network to join as well (then also <http://rrp38.local/>). The **OTA
@@ -196,6 +199,7 @@ main/kline.c          UART setup, 5-baud bit-bang, init sequences, sniffer
 main/kline_console.c  console commands and the candidate address table
 main/main.c           banner, startup, WiFi + web server, REPL
 main/net.c            WiFi: always-on access point, optional home network, mDNS
+main/sniff.c          passive capture shared by the console and the web page
 main/web_server.c     web HMI (read-only), WiFi settings, OTA upload
 main/version.h        firmware version (also fed into the app descriptor)
 partitions.csv        nvs + otadata + two 1.875 MB OTA slots
