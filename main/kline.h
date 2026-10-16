@@ -47,6 +47,11 @@ typedef struct {
 /* Bring up the UART and transceiver pins. Safe to call once at boot. */
 esp_err_t kline_start(void);
 void      kline_stop(void);
+bool      kline_started(void);
+
+/* Disarm and release the bus (bypass MOSFET off, transceiver asleep)
+ * without touching the UART. Used before a reboot from the web side. */
+void      kline_release_bus(void);
 
 /* Runtime transmit gate. Independent of CONFIG_RRP38_ALLOW_TX, which is a
  * compile-time gate; both must permit before any byte leaves the ESP32. */

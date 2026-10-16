@@ -1,6 +1,6 @@
 # RRp38KLineInterface
 
-ESP32 K-line diagnostic interface for the **Range Rover P38A (1995–2002)**.
+ESP32 K-line diagnostic interface for the **Range Rover P38A (1995â2002)**.
 
 ## What this is
 
@@ -9,7 +9,7 @@ The P38A has **no CAN bus**. Its modules are reached over a single-wire
 
 This firmware gives you:
 
-- A correct ISO 9141 transport — half-duplex echo handling, spec timing
+- A correct ISO 9141 transport â half-duplex echo handling, spec timing
   parameters, checksums.
 - **5-baud slow init** (bit-banged, since 5 baud is below the UART's minimum
   divider) and **KWP2000 fast init**.
@@ -28,11 +28,11 @@ consistent enough to hard-code without risking sending nonsense to a module.
 This tool is built for the honest workflow: **capture first, decode second.**
 Once you have real captures from your own car, decoding is easy to add.
 
-## Safety — read this before connecting to the car
+## Safety â read this before connecting to the car
 
 The P38 BeCM is genuinely fragile about diagnostic traffic. Malformed or
 misaddressed messages are a documented cause of immobiliser lockout that
-needs the **EKA (Emergency Key Access) code** — or a BeCM reflash — to
+needs the **EKA (Emergency Key Access) code** â or a BeCM reflash â to
 recover the vehicle.
 
 Two hard rules:
@@ -46,7 +46,7 @@ The firmware enforces this with two independent gates:
 
 | Gate | Where | Default |
 |------|-------|---------|
-| `CONFIG_RRP38_ALLOW_TX` | compile time (menuconfig) | **off** — TX code is not even built |
+| `CONFIG_RRP38_ALLOW_TX` | compile time (menuconfig) | **off** â TX code is not even built |
 | `arm --yes` | runtime console command | **off** on every boot |
 
 Both must be open before a single byte leaves the ESP32.
@@ -62,14 +62,14 @@ Both must be open before a single byte leaves the ESP32.
 
 Current status: **firmware retargeted to ESP32-C6, flashed, and answering
 on the console; a plain TJA1021 breakout (no MCU) received 2026-10-16,
-ready for bench checks. Web HMI + OTA planned** (PLAN.md Phase 2 and Track H, HARDWARE.md).
+ready for bench checks. Web HMI + OTA upload built and flashed (Track H steps 1–3), phone test pending** (PLAN.md Phase 2 and Track H, HARDWARE.md).
 
 ## Hardware
 
 See **[docs/HARDWARE.md](docs/HARDWARE.md)** for the socket pinout and the
 L9637D reference circuit, and
-**[docs/INTERFACE-MODULES.md](docs/INTERFACE-MODULES.md)** for sourcing —
-LIN transceiver breakouts, gutted KKL 409.1 cables, bare L9637D — plus a
+**[docs/INTERFACE-MODULES.md](docs/INTERFACE-MODULES.md)** for sourcing â
+LIN transceiver breakouts, gutted KKL 409.1 cables, bare L9637D â plus a
 bench test procedure that does not need the car.
 
 Target board: **ESP32-C6** (ESP32-C6FH4, 4 MB flash). The console is the
@@ -77,8 +77,8 @@ chip's built-in USB serial port. Pin mapping (change in `menuconfig`):
 
 | Signal | GPIO |
 |--------|------|
-| K-line TX → transceiver TXD | 18 |
-| K-line RX ← transceiver RXD | 19 |
+| K-line TX â transceiver TXD | 18 |
+| K-line RX â transceiver RXD | 19 |
 | Transceiver enable (TJA1021 `SLP`) | 20 |
 | Slow-init bypass MOSFET gate | 14 |
 | L-line TX (optional) | disabled |
@@ -118,6 +118,29 @@ To enable transmission:
 # RR P38 K-Line Interface -> Allow transmitting on the K-line
 ```
 
+## Web interface and OTA
+
+The board runs its own WiFi access point, always:
+
+| | |
+|---|---|
+| Network | `RRp38-KLine` (WPA2) |
+| Default password | `rrp38kline`. **Change it** on the WiFi tab |
+| Page | <http://192.168.4.1/> |
+
+The **Status** tab shows the K-line build, armed state and pins, the
+network, and heap. It is **read-only**: nothing on the page can arm,
+init, send or scan. Those stay on the USB console.
+
+The **WiFi** tab sets the access point password, and optionally a home
+network to join as well (then also <http://rrp38.local/>). The **OTA
+Update** tab takes a `.bin` (`build/` or `build_ncv/RRp38KLineInterface.bin`)
+and reboots into it; the previous image stays in the other slot.
+
+**First flash of a new board: erase it fully first** (`esptool erase-flash`).
+A board flashed over old firmware logged a running access point that never
+appeared on air.
+
 ## Console commands
 
 Connect to the C6's USB port (COM14; baud rate is ignored on USB). Prompt is `p38>`.
@@ -145,7 +168,7 @@ message centre displays **"Diagnostics Mode"**. That is a free, zero-risk
 confirmation that your hardware and init sequence are correct, before you
 have decoded a single byte.
 
-If `sniff` shows nothing at all, that is expected — the P38 K-line is not
+If `sniff` shows nothing at all, that is expected â the P38 K-line is not
 chatty when idle; it answers rather than broadcasts. Bench-test the echo
 loopback (docs/HARDWARE.md) to separate "quiet bus" from "broken wiring".
 
@@ -161,7 +184,7 @@ p38> scan                   # candidate module addresses
 
 The only address in this firmware that is *specified* rather than *observed*
 is `0x33`, the ISO 9141-2 standard OBD-II address. The rest of the candidate
-list in `kline_console.c` is a starting point drawn from community reports —
+list in `kline_console.c` is a starting point drawn from community reports â
 **treat it as unverified** and confirm against your own car. The `scan`
 command exists precisely so you can establish the real map empirically.
 
@@ -171,7 +194,11 @@ command exists precisely so you can establish the real map empirically.
 main/kline.h          transport API and ISO 9141 timing constants
 main/kline.c          UART setup, 5-baud bit-bang, init sequences, sniffer
 main/kline_console.c  console commands and the candidate address table
-main/main.c           banner, startup, REPL
+main/main.c           banner, startup, WiFi + web server, REPL
+main/net.c            WiFi: always-on access point, optional home network, mDNS
+main/web_server.c     web HMI (read-only), WiFi settings, OTA upload
+main/version.h        firmware version (also fed into the app descriptor)
+partitions.csv        nvs + otadata + two 1.875 MB OTA slots
 main/Kconfig.projbuild  pins, baud, safety gates
 docs/HARDWARE.md      circuit, pinout, sourcing, bench test
 ```
@@ -180,6 +207,6 @@ docs/HARDWARE.md      circuit, pinout, sourcing, bench test
 
 1996 Range Rover P38A, 4.0/4.6 Rover V8 with **GEMS** engine management
 (Bosch Motronic 5.2.1 arrived with the 1999 Thor engines). European-market
-cars of this age are not OBD-II compliant — the connector is J1962-shaped
+cars of this age are not OBD-II compliant â the connector is J1962-shaped
 but the protocol is Land Rover proprietary, so generic ELM327 dongles will
 not get far.

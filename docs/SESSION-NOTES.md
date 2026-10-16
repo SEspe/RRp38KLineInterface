@@ -581,7 +581,7 @@ bus. EN=20 now sits in the shared `sdkconfig.defaults`;
 
 Raised at the end of the session: a web interface on the C6 for use from a
 phone, and OTA updates. Planned, not implemented. Full plan in
-[PLAN.md, Track H](PLAN.md#track-h--web-hmi-and-ota-planned-2026-10-16-not-started).
+[PLAN.md, Track H](PLAN.md#track-h--web-hmi-and-ota--in-progress-steps-13-done).
 
 The template is **RemoteStart's SlaveWallas**, which already runs on an
 ESP32-C6 under IDF v6.0.1: dual-slot partitions, `version.h` into the app
@@ -600,7 +600,63 @@ closer fit.
 Open checks for when it is built: K-line timing with WiFi running on the
 single-core C6, and the bus staying released through an OTA reboot.
 
-## 20. Where this stands — stopping point, 2026-10-16
+## 20. Track H steps 1–3 — built and flashed
+
+Same session, straight after the plan. Adapted from SlaveWallas, not
+copied wholesale: its web server is 1600 lines of Wallas-, timer- and
+ESP-NOW-specific code, so only the generic handlers came across.
+
+| Piece | Where | Taken from SlaveWallas |
+|---|---|---|
+| Dual-slot partitions | `partitions.csv` | Verbatim |
+| Version into the app descriptor | `main/version.h`, top-level `CMakeLists.txt` | Verbatim mechanism; version **0.2.0** |
+| WiFi | `main/net.c` | NVS credentials, mDNS, `WIFI_PS_NONE`. **Changed:** AP always on instead of a fallback portal |
+| Web server | `main/web_server.c` | Form decoding, scan, OTA upload loop, `/api/version` with the inactive slot's version, httpd settings. **New:** page, `/api/status`, AP password route |
+
+`net.c` differs from SlaveWallas in one behaviour worth knowing: AP+STA
+shares one radio, and each STA connect attempt scans all channels, which
+drops the phone's link for a moment. So STA retries are five quick ones,
+then one a minute, and **none at all while a phone is on the AP**. In the
+car, where home WiFi is never in range, the board never scans while you use
+it.
+
+**Safety additions:**
+
+- `kline_release_bus()` disarms, drops the MOSFET gate and SLP, without
+  touching the UART. Every reboot from the web side (OTA, settings save,
+  reboot button) calls it first. `kline_stop()` now calls it too.
+- No route arms, inits, sends or scans (decision 25). The page says so.
+- The AP password is changeable from the page (NVS key `appass`); the
+  default `rrp38kline` is printed in the README, so change it.
+
+**Build:** both configs build clean, about 1.02 MB each, 46 % of the
+1.875 MB slot free; WiFi is most of the growth from 213 KB. The generated
+configs had to be regenerated (`set-target esp32c6` again) because
+existing `sdkconfig` files do not pick up new defaults such as the custom
+partition table.
+
+## 21. A silent access point, fixed by a full erase
+
+After flashing, the boot log showed `AP "RRp38-KLine" up at 192.168.4.1`
+and the HTTP server started, but the network never appeared in the PC's
+WiFi list over 2½ minutes, while BirdBox's `BirdAudio-Config` did.
+RemoteStart's FSD §11.1 records exactly this: a board flashed over older
+firmware whose *"logs reported a running SoftAP while its radio
+transmitted nothing"*, cured by a full erase. This C6 came with unknown
+firmware on it.
+
+`esptool erase-flash`, then the same flash: **`RRp38-KLine` appeared
+within 10 s**, WPA2, channel 1, 99 % signal.
+
+| # | Decision | Rationale |
+|---|----------|-----------|
+| 28 | **Always erase fully on a board's first flash** | Twice now (RemoteStart, here) leftover flash contents produced a radio that claims to be up and is silent. A plain flash only writes its own regions |
+| 29 | **STA retries pause while a phone is on the AP** | Each retry scans every channel and drops the phone; in the car home WiFi is never there to find |
+
+**Not yet tested:** the page itself and an OTA upload. Joining the AP from
+this PC would cut it off the home network, so that test is for a phone.
+
+## 22. Where this stands — stopping point, 2026-10-16
 
 **The right transceiver and a working ESP32 are both in hand.** A genuine
 NXP TJA1021 with no MCU in the way, and an ESP32-C6 running the firmware.
@@ -618,6 +674,8 @@ Nothing is blocked on a decision; the next steps are bench measurements.
   and TX `build_ncv/`) target the C6 and drive EN (decision 23).
 - Web HMI and OTA planned as PLAN.md Track H, copying SlaveWallas
   (§19, decisions 24–27). Read-only from the web at first; AP + STA.
+- Track H steps 1–3 built, flashed, AP on air after a full erase (§20,
+  §21, decisions 28–29). Firmware is now v0.2.0 with OTA partitions.
 
 **Next moves, in order:** all on the bench, none near the car, with 12 V on
 `VCC`/`GND` and the ESP32 *not* connected:
@@ -633,9 +691,15 @@ Nothing is blocked on a decision; the next steps are bench measurements.
    then `arm --yes` and `send 55` for the echo test. The firmware is
    already flashed.
 
-**In parallel, no hardware needed:** start Track H (PLAN.md), steps 1–3:
-partitions and `version.h`, WiFi AP + STA, web status page with OTA
-upload. Re-run the echo test with WiFi up once both exist.
+**Web HMI (Track H), in parallel:**
+
+1. **Phone test:** join `RRp38-KLine` (password `rrp38kline`), open
+   `192.168.4.1`. Check the three tabs, then change the AP password.
+2. **OTA test:** upload `build/RRp38KLineInterface.bin` (the passive
+   build) from the OTA tab; Installed should stay 0.2.0 and Running should
+   move to the other slot. Then upload `build_ncv/` to go back.
+3. Then steps 4–6: sniff view, GitHub install, CI.
+4. Once the transceiver is wired: re-run the echo test with WiFi up.
 
 **Still waiting on:** bypass MOSFET parts (2N7002/BSS138, 1 kΩ, 100 kΩ),
 510 Ω, TVS, buck converter, inline fuse; the KKL 409.1 cable; and **the

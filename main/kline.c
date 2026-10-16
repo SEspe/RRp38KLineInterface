@@ -216,9 +216,28 @@ void kline_stop(void)
     if (!s_started) {
         return;
     }
+    kline_release_bus();
     uart_driver_delete(KL_PORT);
     s_started  = false;
+}
+
+void kline_release_bus(void)
+{
+    /* Disarm first, then let go of the bus: bypass MOSFET off and the
+     * transceiver back to sleep. Leaves the UART alone, so it is safe to
+     * call from another task while a console command is running. */
     s_tx_armed = false;
+#if CONFIG_RRP38_INIT_DRIVER_GPIO >= 0
+    gpio_set_level((gpio_num_t)CONFIG_RRP38_INIT_DRIVER_GPIO, 0);
+#endif
+#if CONFIG_RRP38_EN_GPIO >= 0
+    gpio_set_level((gpio_num_t)CONFIG_RRP38_EN_GPIO, 0);
+#endif
+}
+
+bool kline_started(void)
+{
+    return s_started;
 }
 
 bool kline_tx_armed(void)

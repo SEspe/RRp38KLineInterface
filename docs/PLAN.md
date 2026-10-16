@@ -214,7 +214,7 @@ reverse-engineering one.** Budget accordingly.
 
 ---
 
-## Track H — Web HMI and OTA (planned 2026-10-16, not started)
+## Track H — Web HMI and OTA ⬅ IN PROGRESS (steps 1–3 done)
 
 **Goal:** use the board from a phone in the car, and update it without a
 USB cable. Independent of the K-line phases; can start any time. Decisions
@@ -243,10 +243,13 @@ them to the web later is a separate decision.
 
 Steps:
 
-1. Partitions, `version.h`, `PROJECT_VER` from the header.
-2. WiFi AP + STA, portal, NVS, mDNS (`rrp38.local`).
-3. Web server: status page, `/api/status` (the console's `status` fields),
-   OTA upload, reboot.
+1. ✅ Partitions, `version.h`, `PROJECT_VER` from the header.
+2. ✅ WiFi AP + STA, NVS, mDNS (`rrp38.local`). No separate portal: the
+   always-on AP serves the normal page, which has the WiFi tab.
+3. ✅ Web server: status page, `/api/status` (the console's `status`
+   fields), WiFi and AP-password settings, OTA upload, reboot.
+   *Built and flashed 2026-10-16; AP seen from a PC. Page and an OTA
+   upload not yet tested from a phone.*
 4. Sniff view: the sniffer writes frames into a ring buffer as well as the
    console; the page polls `/api/sniff`. Passive by construction.
 5. GitHub Releases install + Firmware Versions card.
@@ -261,7 +264,12 @@ Steps:
 - An OTA reboot while plugged into the car must not disturb the bus: TXD is
   released, SLP falls to its pull-down, the MOSFET gate has its 100 kΩ.
   Verify on the bench by watching `LIN` through a reboot.
-- Never start an OTA while a K-line session is open.
+- Never start an OTA while a K-line session is open. Every reboot from the
+  web side first calls `kline_release_bus()`: disarm, MOSFET gate low, SLP
+  low.
+- **First flash of a board needs a full erase.** Without it the board
+  logged a running SoftAP that never appeared on air (§21 of
+  SESSION-NOTES; RemoteStart FSD §11.1 saw the same).
 
 **Exit criteria:** phone on the AP sees live status and sniff data; an OTA
 upload and a GitHub install both succeed and the board reboots into the

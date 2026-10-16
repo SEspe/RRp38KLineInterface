@@ -19,7 +19,12 @@
 #include "esp_log.h"
 #include "esp_system.h"
 
+#include "nvs_flash.h"
+
 #include "kline.h"
+#include "net.h"
+#include "version.h"
+#include "web_server.h"
 
 void kline_console_register(void);
 
@@ -30,6 +35,7 @@ static void print_banner(void)
     printf("\n");
     printf("=====================================================\n");
     printf("  RRp38KLineInterface - ESP32 K-line for RR P38A\n");
+    printf("  " FIRMWARE_NAME " v" FIRMWARE_VERSION "\n");
     printf("=====================================================\n");
 #if CONFIG_RRP38_ALLOW_TX
     printf("  Build   : TRANSMIT CAPABLE\n");
@@ -51,6 +57,19 @@ void app_main(void)
     print_banner();
 
     ESP_ERROR_CHECK(kline_start());
+
+    /* Web HMI: own access point always, home WiFi when configured. A
+     * failure here must not take the console down with it. */
+    esp_err_t err = nvs_flash_init();
+    if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        nvs_flash_erase();
+        err = nvs_flash_init();
+    }
+    if (err == ESP_OK && net_start() == ESP_OK) {
+        web_server_start();
+    } else {
+        ESP_LOGE(TAG, "WiFi not started (%s); console only", esp_err_to_name(err));
+    }
 
     esp_console_repl_t *repl = NULL;
     esp_console_repl_config_t repl_config = ESP_CONSOLE_REPL_CONFIG_DEFAULT();
