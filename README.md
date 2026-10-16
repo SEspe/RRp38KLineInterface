@@ -62,7 +62,7 @@ Both must be open before a single byte leaves the ESP32.
 
 Current status: **firmware retargeted to ESP32-C6, flashed, and answering
 on the console; a plain TJA1021 breakout (no MCU) received 2026-10-16,
-ready for bench checks** (PLAN.md Phase 2, HARDWARE.md).
+ready for bench checks. Web HMI + OTA planned** (PLAN.md Phase 2 and Track H, HARDWARE.md).
 
 ## Hardware
 

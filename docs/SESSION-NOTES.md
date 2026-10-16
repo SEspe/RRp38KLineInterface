@@ -562,7 +562,45 @@ the USB port drops during reset and the script reconnected too late.
 | 21 | **TX 18, RX 19, EN/SLP 20, MOSFET gate 14** | All free on this board. Avoids the C6 strapping pins 4, 5, 8, 9 and 15 (on SuperMini-style boards 8 and 15 are often LEDs too) and UART0 on 16/17 |
 | 22 | **Console over built-in USB** | The C6 enumerates as its own COM port; no USB-UART bridge on the board |
 
-## 18. Where this stands — stopping point, 2026-10-16
+### Passive build retargeted, and an EN bug caught
+
+The plain `build/` (TX compiled out, for Phase 4 in the car) was
+retargeted with `set-target esp32c6` and builds (206 KB, 80 % free).
+Its generated config showed **`CONFIG_RRP38_EN_GPIO=-1`**: EN lived only
+in `sdkconfig.ncv.defaults`, so the passive build would never have raised
+SLP. The TJA1021 would have stayed asleep and `sniff` would have seen
+nothing in the car, which Phase 4 explicitly accepts as a possibly quiet
+bus. EN=20 now sits in the shared `sdkconfig.defaults`;
+`sdkconfig.ncv.defaults` keeps only the MOSFET gate and `ALLOW_TX`.
+
+| # | Decision | Rationale |
+|---|----------|-----------|
+| 23 | **EN=20 in the shared defaults** | The transceiver needs SLP high in every build, passive included. A missing EN is a silent failure that looks exactly like a quiet bus |
+
+## 19. Web HMI and OTA — planned
+
+Raised at the end of the session: a web interface on the C6 for use from a
+phone, and OTA updates. Planned, not implemented. Full plan in
+[PLAN.md, Track H](PLAN.md#track-h--web-hmi-and-ota-planned-2026-10-16-not-started).
+
+The template is **RemoteStart's SlaveWallas**, which already runs on an
+ESP32-C6 under IDF v6.0.1: dual-slot partitions, `version.h` into the app
+descriptor, a web server with WiFi portal, `/ota/upload`, install from
+GitHub Releases, a Firmware Versions card, and the release and web-flasher
+workflows. BirdBox has a similar setup but more of it; SlaveWallas is the
+closer fit.
+
+| # | Decision | Rationale |
+|---|----------|-----------|
+| 24 | **Copy SlaveWallas's OTA and web server** rather than write new ones | Same chip, same IDF version, already proven in use |
+| 25 | **Web HMI is read-only at first**: status, live sniff, OTA | A web page that can transmit lets anyone on the AP talk to the BeCM. `arm`/`send`/`slowinit`/`fastinit`/`scan` stay on the USB console until at least Phase 5 |
+| 26 | **WiFi AP + STA** | No router in the car, so the board runs its own WPA2 AP for the phone; it also joins home WiFi when in range, which GitHub-release OTA needs |
+| 27 | **Each release carries a passive and a TX binary** | OTA can then switch between the Phase 4 passive build and the TX build without USB |
+
+Open checks for when it is built: K-line timing with WiFi running on the
+single-core C6, and the bus staying released through an OTA reboot.
+
+## 20. Where this stands — stopping point, 2026-10-16
 
 **The right transceiver and a working ESP32 are both in hand.** A genuine
 NXP TJA1021 with no MCU in the way, and an ESP32-C6 running the firmware.
@@ -576,7 +614,10 @@ Nothing is blocked on a decision; the next steps are bench measurements.
 - Header mapped: pins 1–3 are the `HOST`/`SLAVE` jumper block; RX and TX
   are only on the screw terminal.
 - ESP32 identified as a C6; firmware retargeted, flashed, console verified
-  (§17). All docs carry the C6 pin mapping.
+  (§17). All docs carry the C6 pin mapping. Both builds (passive `build/`
+  and TX `build_ncv/`) target the C6 and drive EN (decision 23).
+- Web HMI and OTA planned as PLAN.md Track H, copying SlaveWallas
+  (§19, decisions 24–27). Read-only from the web at first; AP + STA.
 
 **Next moves, in order:** all on the bench, none near the car, with 12 V on
 `VCC`/`GND` and the ESP32 *not* connected:
@@ -591,6 +632,10 @@ Nothing is blocked on a decision; the next steps are bench measurements.
 4. Wire GPIO18→`TX`, GPIO19→`RX`, GPIO20→`SLP`, GND→`GND`. Run `status`,
    then `arm --yes` and `send 55` for the echo test. The firmware is
    already flashed.
+
+**In parallel, no hardware needed:** start Track H (PLAN.md), steps 1–3:
+partitions and `version.h`, WiFi AP + STA, web status page with OTA
+upload. Re-run the echo test with WiFi up once both exist.
 
 **Still waiting on:** bypass MOSFET parts (2N7002/BSS138, 1 kΩ, 100 kΩ),
 510 Ω, TVS, buck converter, inline fuse; the KKL 409.1 cable; and **the

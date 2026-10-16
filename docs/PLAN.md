@@ -214,6 +214,61 @@ reverse-engineering one.** Budget accordingly.
 
 ---
 
+## Track H — Web HMI and OTA (planned 2026-10-16, not started)
+
+**Goal:** use the board from a phone in the car, and update it without a
+USB cable. Independent of the K-line phases; can start any time. Decisions
+24–27 in [SESSION-NOTES.md](SESSION-NOTES.md#19-web-hmi-and-ota--planned).
+
+**Template: RemoteStart's SlaveWallas**, which already runs on an
+ESP32-C6 under ESP-IDF v6.0.1. Copy and adapt, do not re-derive:
+
+| From `RemoteStart/SlaveWallas/` | What it gives |
+|---|---|
+| `partitions.csv` | `nvs` + `otadata` + two 1.875 MB OTA slots; fits the 4 MB C6 |
+| `main/version.h` + top-level `CMakeLists.txt` | `FIRMWARE_VERSION` baked into the app descriptor, so the inactive slot's version is readable |
+| `main/web_server.c` | WiFi portal and NVS credentials, `/api/status`, `/api/sysinfo`, `/api/reboot`, `/ota/upload`, GitHub Releases install with progress, Firmware Versions card |
+| `main/idf_component.yml` | `espressif/cjson`, `espressif/mdns` |
+| `.github/workflows/release.yml`, `webflash-pages.yml` | Tag → release `.bin`; esp-web-tools browser flasher on GitHub Pages |
+
+**Network: AP + STA.** The board always runs its own access point
+(WPA2, password set in NVS) so a phone can reach it at `192.168.4.1` in the
+car. When home WiFi is in range it also joins as a station, which is what
+GitHub-release OTA needs. File-upload OTA works over the AP alone.
+
+**K-line access from the web: read-only.** First version shows status, a
+live sniff view and the OTA tab. `arm`, `send`, `slowinit`, `fastinit` and
+`scan` stay on the USB console until at least Phase 5 has passed. Adding
+them to the web later is a separate decision.
+
+Steps:
+
+1. Partitions, `version.h`, `PROJECT_VER` from the header.
+2. WiFi AP + STA, portal, NVS, mDNS (`rrp38.local`).
+3. Web server: status page, `/api/status` (the console's `status` fields),
+   OTA upload, reboot.
+4. Sniff view: the sniffer writes frames into a ring buffer as well as the
+   console; the page polls `/api/sniff`. Passive by construction.
+5. GitHub Releases install + Firmware Versions card.
+6. CI: `release.yml` publishing **two assets per release**, the passive and
+   the TX build (e.g. `RRp38_passive_v1.0.0.bin`, `RRp38_tx_v1.0.0.bin`),
+   so OTA can switch between them without USB. Then `webflash-pages.yml`.
+
+**Checks specific to this project:**
+
+- K-line timing with WiFi running on the C6's single core: re-run the
+  Phase 3 echo test and the fast-init check with the AP up.
+- An OTA reboot while plugged into the car must not disturb the bus: TXD is
+  released, SLP falls to its pull-down, the MOSFET gate has its 100 kΩ.
+  Verify on the bench by watching `LIN` through a reboot.
+- Never start an OTA while a K-line session is open.
+
+**Exit criteria:** phone on the AP sees live status and sniff data; an OTA
+upload and a GitHub install both succeed and the board reboots into the
+new image.
+
+---
+
 ## Parallel track — a lower-risk alternative
 
 If the goal turns out to be *a gauge display* rather than *diagnostics*,
@@ -236,4 +291,6 @@ K-line decoding proceeds at its own pace.
 | Bus is simply quiet; nothing to sniff | High | Low | Phase 3 bench test proves hardware independently |
 | GEMS framing resists decoding | Medium | Medium | Phase 8 parallel track; community resources |
 | Corroded kick-panel connectors block EAS | Medium | Low | Known failure point — inspect before blaming the circuit |
+| Someone on the WiFi AP transmits on the K-line | Low | **Severe** | Web HMI read-only (decision 25); WPA2 AP password; compile-time TX gate unchanged |
+| WiFi load disturbs K-line timing on the single-core C6 | Low | Medium | UART times bytes in hardware; re-run the echo and fast-init tests with WiFi up |
 | 12 V transient damages the ESP32 | Low | Medium | Automotive-rated buck, inline fuse, never a bare LDO |
