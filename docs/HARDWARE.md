@@ -158,6 +158,9 @@ TX 18, RX 19, EN/SLP 20, MOSFET gate 14.
 
 ### Bench checks before the ESP32 is connected
 
+The full step-by-step procedure, through the echo test, is in
+[Bench testing before the car](#bench-testing-before-the-car). In short:
+
 12 V on `VCC` / `GND`, nothing else on `LIN`, nothing on the logic side.
 
 1. **`RX` terminal to GND: expect ~3.3 V.** If it reads ~5 V, do not
@@ -523,14 +526,104 @@ from a protocol misunderstanding when nothing answers.
 
 ## Bench testing before the car
 
-You do not need the vehicle to prove the firmware works:
+Proves the interface electrically with zero risk to the vehicle (PLAN.md
+Phase 3). Written for the plain TJA1021 breakout and the ESP32-C6.
 
-1. Power the transceiver from a 12V bench supply.
-2. Tie K through the 510R pull-up to 12V.
-3. Loop back: with nothing else on the bus, anything the ESP32 transmits
-   should come straight back on RX. `kline_write()` verifies exactly this
-   echo, so a successful `send` on the bench means the wiring is right.
-4. Only then move to the car, and start with `sniff`.
+**You need:**
+
+- **12 V supply.** A bench supply with the current limit at ~100 mA, or a
+  12 V adapter.
+- **A multimeter.**
+- **Resistors:** two 1 kΩ and two 2.2 kΩ. Two 1 kΩ in parallel make
+  ≈ 500 Ω, which stands in for the 510 Ω pull-up until it arrives.
+- **Jumper wires.**
+
+### 1. Module alone: 12 V on, ESP32 not connected
+
++12 V to `VCC`, supply GND to `GND`. The POWER LED should light. Measure
+against GND:
+
+| Point | Expect | If not |
+|---|---|---|
+| `RX` terminal | **~3.3 V** | **~5 V: stop.** It would damage the ESP32; re-pull RXD to 3.3 V first |
+| `3V3` (header pin 5) | ~3.3 V | Board fault |
+| `TX` terminal, `SLP` (pin 6) | Note the values | Shows the board's default pulls |
+
+### 2. Pull-up on LIN: three times
+
+Jumper cap on `HOST` (header pins 1–2). Measure `LIN`→GND: close to 12 V.
+Then put 1 kΩ from `LIN` to GND and measure again. Repeat with the cap on
+`SLAVE` (pins 2–3), then with no cap.
+
+| LIN under the 1 kΩ load | Meaning | Fit from 12 V to LIN |
+|---|---|---|
+| ~5–6 V | The jumper adds a 1 kΩ pull-up | Another 1 kΩ (→ ~500 Ω) |
+| < 1 V | Nothing that matters | Two 1 kΩ in parallel (≈ 500 Ω) |
+| 2–4 V | Something like 2–5 kΩ | Work out the parallel value for ~500 Ω |
+
+Aim for ~500 Ω in total. Much lower and the low-level current passes the
+TJA1021's 40 mA minimum current limit, so it may not pull the bus fully low
+(see [the powered pull-up test](#master-pull-up--powered-test-bench-only)).
+
+### 3. Wire the ESP32
+
+The ESP32 stays on USB to the PC. **Never connect it to 12 V.**
+
+| ESP32-C6 | Module |
+|---|---|
+| GPIO18 | `TX` terminal |
+| GPIO19 | `RX` terminal |
+| GPIO20 | `SLP` (header pin 6) |
+| GND | `GND` (which also ties it to the 12 V supply's GND) |
+
+Fit the pull-up chosen in step 2 between +12 V and `LIN`. Nothing else on
+`LIN`.
+
+### 4. The transceiver wakes
+
+Console on COM14 (or the web page): `status`. Then measure:
+
+| Point | Expect | Meaning |
+|---|---|---|
+| `SLP` | ~3.3 V | Firmware drives EN |
+| **`INH` (header pin 8)** | **close to 12 V** | **TJA1021 is in normal mode** |
+| `LIN` | close to 12 V | Bus idle, recessive |
+| `RX` | ~3.3 V | Receiver sees the idle bus |
+
+### 5. Echo test: Phase 3 pass or fail
+
+Needs the **tx** build (OTA tab: install the `tx` image if the board runs
+`passive`).
+
+```
+p38> arm --yes
+p38> send 55
+```
+
+**Pass:** `TX: 55` then `RX: (no response…)` with **no error**. On a
+half-duplex line every byte sent comes back on RX, and `kline_write()`
+checks that echo on each byte. A clean pass proves logic levels, ground,
+pull-up and baud rate together. Then try `send 55 AA 01 FF`, and `disarm`.
+
+| Message | Likely cause |
+|---|---|
+| `no echo for byte` | SLP not high, no 12 V, or no pull-up |
+| `echo mismatch` | Bad ground, or the pull-up too weak |
+| `K-line busy (web)` | A web capture is running; stop it on the Sniff tab |
+| Console dead | Wrong COM port: the C6's console is its own USB port |
+
+WiFi is always running, so this also covers the "echo test with WiFi up"
+check of Track H.
+
+### 6. Still open after the bench
+
+`fastinit` holds the bus low for 25 ms. Whether the TJA1021 really holds
+it that long (its timeout is guaranteed no earlier than 27 ms) can only be
+seen with an oscilloscope or logic analyser on `LIN`; a multimeter cannot
+show it.
+
+Only after all of this does the car get involved, starting with `sniff`,
+on the **passive** build.
 
 ## Sources
 

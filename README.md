@@ -58,7 +58,7 @@ Both must be open before a single byte leaves the ESP32.
 | [docs/PLAN.md](docs/PLAN.md) | Phased roadmap with entry/exit criteria, and a risk register. **Start here.** |
 | [docs/SESSION-NOTES.md](docs/SESSION-NOTES.md) | What was investigated, every decision and its rationale, and what is still unverified |
 | [docs/INTERFACE-MODULES.md](docs/INTERFACE-MODULES.md) | Which transceiver to buy, comparison table, what to check on arrival |
-| [docs/HARDWARE.md](docs/HARDWARE.md) | Socket pinout, reference circuits, wiring for the TJA1021 module in hand, bench test procedure |
+| [docs/HARDWARE.md](docs/HARDWARE.md) | Socket pinout, reference circuits, wiring for the TJA1021 module in hand, [bench test procedure](docs/HARDWARE.md#bench-testing-before-the-car) |
 
 Current status: **firmware retargeted to ESP32-C6, flashed, and answering
 on the console; a plain TJA1021 breakout (no MCU) received 2026-10-16,

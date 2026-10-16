@@ -91,6 +91,9 @@ inside the vehicle.
 
 **Goal:** prove the interface electrically, with zero risk to the vehicle.
 
+**Step-by-step procedure, with expected readings:**
+[HARDWARE.md — Bench testing before the car](HARDWARE.md#bench-testing-before-the-car).
+
 1. Flash the firmware. Confirm the console banner and `p38>` prompt.
 2. `status` — verify the pin mapping matches how you actually wired it.
 3. Wire the transceiver to a 12 V bench supply, K pulled up through 510 Ω,
