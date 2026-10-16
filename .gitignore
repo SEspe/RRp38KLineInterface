@@ -9,3 +9,4 @@ dependencies.lock
 captures/
 build_*/
 sdkconfig.ncv
+sdkconfig.ncv.old
