@@ -60,8 +60,8 @@ That is a vendor statement, not a community workaround.
 **Typical wiring:**
 
 ```
-ESP32 GPIO17 ──> TXD / TX
-ESP32 GPIO16 <── RXD / RX
+ESP32 GPIO18 ──> TXD / TX
+ESP32 GPIO19 <── RXD / RX
 ESP32 3V3    ──> Vcc  (check: some boards want 5V logic supply)
 ESP32 GND    ──> GND  (common ground with the car)
         12V  ──> VBAT / Vsup      (socket pin 16, fused)

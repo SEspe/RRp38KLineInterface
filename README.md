@@ -60,9 +60,9 @@ Both must be open before a single byte leaves the ESP32.
 | [docs/INTERFACE-MODULES.md](docs/INTERFACE-MODULES.md) | Which transceiver to buy, comparison table, what to check on arrival |
 | [docs/HARDWARE.md](docs/HARDWARE.md) | Socket pinout, reference circuits, wiring for the TJA1021 module in hand, bench test procedure |
 
-Current status: **firmware complete and building; a plain TJA1021
-breakout (no MCU) received 2026-10-16, ready for bench checks** (PLAN.md
-Phase 2, HARDWARE.md).
+Current status: **firmware retargeted to ESP32-C6, flashed, and answering
+on the console; a plain TJA1021 breakout (no MCU) received 2026-10-16,
+ready for bench checks** (PLAN.md Phase 2, HARDWARE.md).
 
 ## Hardware
 
@@ -72,12 +72,15 @@ L9637D reference circuit, and
 LIN transceiver breakouts, gutted KKL 409.1 cables, bare L9637D — plus a
 bench test procedure that does not need the car.
 
-Default pin mapping (change in `menuconfig`):
+Target board: **ESP32-C6** (ESP32-C6FH4, 4 MB flash). The console is the
+chip's built-in USB serial port. Pin mapping (change in `menuconfig`):
 
 | Signal | GPIO |
 |--------|------|
-| K-line TX → transceiver TXD | 17 |
-| K-line RX ← transceiver RXD | 16 |
+| K-line TX → transceiver TXD | 18 |
+| K-line RX ← transceiver RXD | 19 |
+| Transceiver enable (TJA1021 `SLP`) | 20 |
+| Slow-init bypass MOSFET gate | 14 |
 | L-line TX (optional) | disabled |
 
 ## Build
@@ -91,13 +94,22 @@ $env:IDF_TOOLS_PATH = "D:\Espressif"
 $env:IDF_PYTHON_ENV_PATH = "D:\Espressif\python_env\idf6.0_py3.11_env"
 $env:ESP_IDF_VERSION = "6.0.1"
 $env:PYTHONIOENCODING = "utf-8"
-$xtensa = "D:\Espressif\tools\xtensa-esp-elf\esp-15.2.0_20251204\xtensa-esp-elf\bin"
-$env:PATH = "D:\Espressif\tools\cmake\4.0.3\bin;D:\Espressif\tools\ninja\1.12.1;$xtensa;" + $env:PATH
+$riscv = "D:\Espressif\tools\riscv32-esp-elf\esp-15.2.0_20251204\riscv32-esp-elf\bin"
+$env:PATH = "D:\Espressif\tools\cmake\4.0.3\bin;D:\Espressif\tools\ninja\1.12.1;$riscv;" + $env:PATH
 
 cd D:\SteinsRootMappe\Claude\RRp38KLineInterface
-& $python "D:\esp\v6.0.1\esp-idf\tools\idf.py" build
-& $python "D:\esp\v6.0.1\esp-idf\tools\idf.py" -p COM4 flash monitor
+# TJA1021 config (EN pin, bypass MOSFET, TX compiled in):
+$cfg = @("-B","build_ncv","-D","SDKCONFIG=sdkconfig.ncv","-D","SDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.ncv.defaults")
+& $python "D:\esp\v6.0.1\esp-idf\tools\idf.py" @cfg build
+& $python "D:\esp\v6.0.1\esp-idf\tools\idf.py" @cfg -p COM14 flash monitor
 ```
+
+The C6 enumerates as **COM14** (USB `303A:1001`). After changing the
+target, run `idf.py @cfg set-target esp32c6` once; it clears the build
+directory and regenerates `sdkconfig.ncv` itself. The plain `build/`
+directory (no `@cfg`) is the passive config with TX compiled out; it was
+last built for the classic ESP32 and needs the same one-time
+`set-target esp32c6` before it builds again.
 
 To enable transmission:
 
@@ -108,7 +120,7 @@ To enable transmission:
 
 ## Console commands
 
-Connect at 115200 baud. Prompt is `p38>`.
+Connect to the C6's USB port (COM14; baud rate is ignored on USB). Prompt is `p38>`.
 
 | Command | Purpose |
 |---------|---------|

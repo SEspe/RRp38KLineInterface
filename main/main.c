@@ -57,10 +57,19 @@ void app_main(void)
     repl_config.prompt          = "p38>";
     repl_config.max_cmdline_length = 256;
 
+#if CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
+    /* Chips with built-in USB (C3, C6, S3) enumerate as a COM port of
+     * their own; the console lives there and UART0 stays unused. */
+    esp_console_dev_usb_serial_jtag_config_t usb_config =
+        ESP_CONSOLE_DEV_USB_SERIAL_JTAG_CONFIG_DEFAULT();
+
+    ESP_ERROR_CHECK(esp_console_new_repl_usb_serial_jtag(&usb_config, &repl_config, &repl));
+#else
     esp_console_dev_uart_config_t uart_config =
         ESP_CONSOLE_DEV_UART_CONFIG_DEFAULT();
 
     ESP_ERROR_CHECK(esp_console_new_repl_uart(&uart_config, &repl_config, &repl));
+#endif
 
     ESP_ERROR_CHECK(esp_console_register_help_command());
     kline_console_register();

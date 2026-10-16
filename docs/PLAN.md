@@ -7,8 +7,9 @@ was.
 
 **Status: Phase 1 complete. Phase 2 in progress — a plain TJA1021 breakout
 with no MCU (marking 1021T2C) received 2026-10-16. It replaces the
-MCU-fronted U7X54911 from 2026-09-30, so no bypass is needed. Next: the
-powered bench checks in HARDWARE.md, then Phase 3.**
+MCU-fronted U7X54911 from 2026-09-30, so no bypass is needed. The ESP32
+turned out to be an ESP32-C6; the firmware is retargeted and flashed. Next:
+the powered bench checks in HARDWARE.md, then Phase 3.**
 
 ---
 
@@ -39,8 +40,12 @@ clean, before any hardware exists.
 - [x] Address scanner
 - [x] Two independent transmit gates
 - [x] Builds against ESP-IDF v6.0.1 — 185 KB, 82 % partition free
+- [x] Retargeted to the **ESP32-C6** actually in hand (2026-10-16): console
+      over built-in USB, pins TX 18 / RX 19 / EN 20 / MOSFET 14. 213 KB,
+      79 % free. **Flashed; `status` answers on COM14**
 
-**Outcome:** `RRp38KLineInterface.bin` builds. Not yet flashed.
+**Outcome:** `RRp38KLineInterface.bin` builds and runs on the ESP32-C6.
+Not yet connected to a transceiver.
 
 ---
 
@@ -104,7 +109,7 @@ shifting, grounding, pull-up and baud rate are all correct.
 |---------|-------------|
 | "no echo for byte" | Enable/SLP pin not driven high; no 12 V; missing pull-up |
 | "echo mismatch" | Baud rate wrong; 5 V logic feeding a 3.3 V pin; bad ground |
-| Nothing at all, console dead | Wrong UART port — UART0 is the console |
+| Nothing at all, console dead | Wrong COM port — the C6's console is its built-in USB (COM14), not a UART |
 
 ---
 

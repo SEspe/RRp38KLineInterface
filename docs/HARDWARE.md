@@ -36,8 +36,8 @@ The L9637D is a purpose-built ISO 9141 K-line transceiver. Minimal circuit:
                             +--[510R]--+
                             |          |
    ESP32                 +--+--+       |
-   GPIO17 (TX) --------> | Vs  |       |
-   GPIO16 (RX) <-------- | RX  K |-----+-----> pin 7  (K-line)
+   GPIO18 (TX) --------> | Vs  |       |
+   GPIO19 (RX) <-------- | RX  K |-----+-----> pin 7  (K-line)
    3V3        ---------> | Vcc   |
    GND        ---------> | GND L |-----------> pin 15 (L-line, optional)
                          +-------+
@@ -68,10 +68,10 @@ level**. Pull it to 3.3 V and the ESP32 sees 3.3 V, with no divider needed.
                             +--[510R]--+          3V3
                             |          |           |
    ESP32                 +--+--+       |         [4k7]
-   GPIO16 (RX) <---------| RXD  |      |           |
-   GPIO21 (EN) --------->| SLP_N|      |           |
+   GPIO19 (RX) <---------| RXD  |      |           |
+   GPIO20 (EN) --------->| SLP_N|      |           |
               +12V ----->| WAKE_N   LIN|-----+-----> pin 7  (K-line)
-   GPIO17 (TX) --------->| TXD  |      |
+   GPIO18 (TX) --------->| TXD  |      |
    GND        ---------->| GND  |   VBAT|<---------- +12V
                          |      |    INH|--- (n/c)
                          +------+
@@ -134,25 +134,34 @@ parallel can back-feed each other. Use it only as a probe point.
 
 ### Wiring
 
-| ESP32 | Goes to | Note |
+The ESP32 in hand is an **ESP32-C6** (ESP32-C6FH4, 4 MB embedded flash,
+identified with esptool 2026-10-16). Its console is the built-in USB
+serial port, so UART0 and GPIO16/17 are free but avoided anyway. Pins were
+chosen from what the board breaks out (0–9, 14–16, 18–20), skipping the
+C6 strapping pins 4, 5, 8, 9 and 15:
+
+| ESP32-C6 | Goes to | Note |
 |-------|---------|------|
-| GPIO17 (TX) | `TX` terminal | Direct; nothing else drives it |
-| GPIO16 (RX) | `RX` terminal | Direct, **once it is confirmed to idle at 3.3 V** |
-| GPIO21 (EN) | `SLP` header pin 6 | `CONFIG_RRP38_EN_GPIO`. Only on the header |
+| GPIO18 (TX) | `TX` terminal | Direct; nothing else drives it |
+| GPIO19 (RX) | `RX` terminal | Direct, **once it is confirmed to idle at 3.3 V** |
+| GPIO20 (EN) | `SLP` header pin 6 | `CONFIG_RRP38_EN_GPIO`. Only on the header |
 | GND | `GND` terminal or header pin 4 | Common ground; same net |
 | — | `VCC` terminal | +12 V, fused |
 | — | `LIN` terminal | K-line; bypass MOSFET drain also goes here |
 
-`WAKE` and `INH` stay unconnected. `sdkconfig.ncv.defaults` applies
-unchanged. The bypass MOSFET is still needed for slow init; fast init works
-through the chip.
+`WAKE` and `INH` stay unconnected. `sdkconfig.ncv.defaults` holds this
+mapping (plus GPIO14 for the bypass MOSFET gate). The bypass MOSFET is
+still needed for slow init; fast init works through the chip.
+
+The GPIO numbers elsewhere in this file follow the same C6 mapping:
+TX 18, RX 19, EN/SLP 20, MOSFET gate 14.
 
 ### Bench checks before the ESP32 is connected
 
 12 V on `VCC` / `GND`, nothing else on `LIN`, nothing on the logic side.
 
 1. **`RX` terminal to GND: expect ~3.3 V.** If it reads ~5 V, do not
-   connect GPIO16. Re-pull RXD to 3.3 V first.
+   connect GPIO19. Re-pull RXD to 3.3 V first.
 2. **`TX` terminal to GND**, open: tells whether the board pulls TXD up,
    and to what.
 3. **`SLP` to GND**, open: tells whether the board holds the chip awake by
@@ -203,9 +212,9 @@ it lets go of TXD and SLP_N.
 | ESP32 | Goes to | Note |
 |-------|---------|------|
 | GND | `RESET` pad | Holds the MCU in reset |
-| GPIO17 (TX) | TJA1021 pin 4 TXD | **Through 1 kΩ** |
-| GPIO21 (EN) | TJA1021 pin 2 SLP_N | **Through 1 kΩ** |
-| GPIO16 (RX) | TJA1021 pin 1 RXD | Direct |
+| GPIO18 (TX) | TJA1021 pin 4 TXD | **Through 1 kΩ** |
+| GPIO20 (EN) | TJA1021 pin 2 SLP_N | **Through 1 kΩ** |
+| GPIO19 (RX) | TJA1021 pin 1 RXD | Direct |
 | GND | `GND` terminal | Common ground |
 | — | `VCC` terminal | +12 V, fused |
 | — | `LIN` terminal | K-line; bypass MOSFET drain also goes here |
@@ -268,11 +277,11 @@ current limit, so the driver could fail to pull the bus fully low.
                                    ▲
                                    └── MOSFET drain (slow init only)
  pin 4/5 GND ────────────────► GND terminal ◄─► TJA pin 5 GND ◄──► GND
-                                               TJA pin 1 RXD ─────► GPIO16
-                                               TJA pin 2 SLP_N ◄─[1k]─ GPIO21
-                                               TJA pin 4 TXD  ◄─[1k]─ GPIO17
+                                               TJA pin 1 RXD ─────► GPIO19
+                                               TJA pin 2 SLP_N ◄─[1k]─ GPIO20
+                                               TJA pin 4 TXD  ◄─[1k]─ GPIO18
                                                RESET pad ◄────────── GND
-                              MOSFET gate ◄─[1k]─ GPIO22   (100k gate→GND)
+                              MOSFET gate ◄─[1k]─ GPIO14   (100k gate→GND)
 ```
 
 #### Car side — diagnostic socket
@@ -327,7 +336,7 @@ current limit, so the driver could fail to pull the bus fully low.
 
 **Pin 4 — TXD: data in from the ESP32.**
 
-- Connect ESP32 **GPIO17** (UART TX) through **1 kΩ**.
+- Connect ESP32 **GPIO18** (UART TX) through **1 kΩ**.
 - TXD low drives the bus low; TXD high releases it. The UART idles high,
   so the bus rests high.
 - The 1 kΩ protects against contention if the MCU ever wakes up.
@@ -337,7 +346,7 @@ current limit, so the driver could fail to pull the bus fully low.
 
 **Pin 1 — RXD: data out to the ESP32.**
 
-- Connect ESP32 **GPIO16** (UART RX) directly.
+- Connect ESP32 **GPIO19** (UART RX) directly.
 - Mirrors the bus state. The output can only pull low, so a pull-up to
   3.3 V makes the high level (measurement #2 above; fit 4.7 kΩ to 3.3 V if
   it reads open).
@@ -347,7 +356,7 @@ current limit, so the driver could fail to pull the bus fully low.
 
 **Pin 2 — SLP_N: on/off.**
 
-- Connect ESP32 **GPIO21** through **1 kΩ**.
+- Connect ESP32 **GPIO20** through **1 kΩ**.
 - Low is sleep, with the bus disconnected. The rising edge switches the
   chip on. An internal pull-down keeps it asleep if nothing drives it.
 - The firmware raises it only after the UART is holding TXD high: entering
@@ -363,10 +372,10 @@ Leave it alone.
 
 | ESP32 | To | Purpose |
 |-------|----|---------|
-| **GPIO17** | TJA pin 4 via 1 kΩ | UART TX, 10400 baud |
-| **GPIO16** | TJA pin 1 | UART RX, including the echo |
-| **GPIO21** | TJA pin 2 via 1 kΩ | Transceiver on/off (`CONFIG_RRP38_EN_GPIO`) |
-| **GPIO22** | MOSFET gate via 1 kΩ | Slow init only (`CONFIG_RRP38_INIT_DRIVER_GPIO`) |
+| **GPIO18** | TJA pin 4 via 1 kΩ | UART TX, 10400 baud |
+| **GPIO19** | TJA pin 1 | UART RX, including the echo |
+| **GPIO20** | TJA pin 2 via 1 kΩ | Transceiver on/off (`CONFIG_RRP38_EN_GPIO`) |
+| **GPIO14** | MOSFET gate via 1 kΩ | Slow init only (`CONFIG_RRP38_INIT_DRIVER_GPIO`) |
 | **GND** | Module GND and the `RESET` pad | Common ground; MCU held off |
 | **5V / VIN** | Buck converter output, or USB on the bench | ESP32 power. **Not** the module's 3V3 — its small LDO is not meant for that. Never run the ESP32 straight off the car's 12 V |
 
@@ -376,7 +385,7 @@ Leave it alone.
 |------|-----------|-----|
 | 2N7002 / BSS138 **drain** | `LIN` terminal | Pulls the K-line low. It has no timeout, unlike the TJA1021 |
 | **Source** | GND | |
-| **Gate** | GPIO22 via 1 kΩ, plus **100 kΩ to GND** | The 100 kΩ keeps the MOSFET off while the ESP32 boots or resets. Without it, a floating gate could hold the car's bus low |
+| **Gate** | GPIO14 via 1 kΩ, plus **100 kΩ to GND** | The 100 kΩ keeps the MOSFET off while the ESP32 boots or resets. Without it, a floating gate could hold the car's bus low |
 
 During a 5-baud init TXD stays high, so the chip is not transmitting, and
 the MOSFET creates the low bits instead. The chip's RXD still sees them.
@@ -384,13 +393,13 @@ Details in [Bypass MOSFET](#bypass-mosfet--for-transceivers-with-a-txd-dominant-
 
 #### How one bit flows
 
-1. The ESP32 sends a 0 bit, so GPIO17 goes low.
+1. The ESP32 sends a 0 bit, so GPIO18 goes low.
 2. TJA1021 TXD goes low, and its LIN pin pulls pin 7 down to about 1 V.
 3. Every module on the bus sees it, and so does the TJA1021's own
    receiver.
-4. RXD goes low, so GPIO16 reads the echo.
+4. RXD goes low, so GPIO19 reads the echo.
 
-For a 1 bit, GPIO17 goes high, the driver lets go, the 510 Ω pulls the line
+For a 1 bit, GPIO18 goes high, the driver lets go, the 510 Ω pulls the line
 back to 12 V, and RXD reads 3.3 V.
 
 #### On the bench
@@ -422,7 +431,7 @@ Normal byte traffic is short enough to go through the transceiver as usual.
                                     K-line (socket pin 7)
                                           |
                                           |
-   ESP32 GPIO22 ──[1k]──┐              ┌──┘
+   ESP32 GPIO14 ──[1k]──┐              ┌──┘
    (init driver)        │            D │
                         ├──── gate ────┤  2N7002 / BSS138
                       [100k]           │  (N-channel, Vds >= 60V)

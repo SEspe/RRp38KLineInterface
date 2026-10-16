@@ -523,35 +523,74 @@ Photos: `docs/images/tja1021-breakout.png` (whole board),
 | # | Decision | Rationale |
 |---|----------|-----------|
 | 17 | **Use the plain breakout; the U7X54911 becomes a fallback** | No MCU means decisions 14–16 (reset wire, leg soldering, 1 kΩ series resistors) are unnecessary, and the risk of an MCU transmitting on the car's bus is gone |
-| 18 | ESP32 wires to the **screw terminals and `SLP` header pin directly** | GPIO17→`TX`, GPIO16→`RX`, GPIO21→`SLP`, common GND. Nothing else drives those lines, so no series resistors. `sdkconfig.ncv.defaults` unchanged |
+| 18 | ESP32 wires to the **screw terminals and `SLP` header pin directly** | GPIO17→`TX`, GPIO16→`RX`, GPIO21→`SLP`, common GND. Nothing else drives those lines, so no series resistors. *Pin numbers superseded by decision 21 (ESP32-C6)* |
 | 19 | **Run the pull-up load test with the cap on HOST, on SLAVE, and off** | One test shows what the `HOST/SLAVE` jumper actually does *and* settles the pull-up value, rather than trusting the silkscreen |
 
-## 17. Where this stands — stopping point, 2026-10-16
+## 17. The ESP32 is an ESP32-C6 — firmware retargeted and flashed
 
-**The right board is in hand.** A genuine NXP TJA1021 with no MCU in the
-way. Nothing is blocked on a decision; the next steps are bench
-measurements.
+Choosing pins exposed it: GPIO21 and GPIO22 were not available, and the
+board breaks out **0–9, 14–16, 18–20**. An original ESP32 has no GPIO20 and
+cannot free 6–11 (flash), so the board could not be the `esp32` target the
+firmware was built for. The USB port enumerated as COM14 with Espressif's
+own ID `303A:1001` (built-in USB), and `esptool chip-id` settled it:
+**ESP32-C6FH4 (QFN32) rev v0.2**, 4 MB embedded flash, USB-Serial/JTAG.
+
+Changes:
+
+- `sdkconfig.defaults`: target `esp32c6`, `CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG`,
+  4 MB flash, TX 18 / RX 19.
+- `sdkconfig.ncv.defaults`: EN 20, bypass MOSFET gate 14.
+- `main.c`: the REPL uses `esp_console_new_repl_usb_serial_jtag()` when
+  the console is USB-Serial/JTAG; the UART REPL remains for the classic
+  ESP32. Nothing else in the code needed touching: the K-line stays on
+  UART1, which the C6 has, and `U1TXD_OUT_IDX` exists in its signal map.
+- Retargeted with `idf.py set-target esp32c6` on `build_ncv`, which
+  regenerates `sdkconfig.ncv` and clears the build directory itself.
+  The plain `build/` is still classic-ESP32 and stale.
+
+**Result:** builds clean, 213 KB with 79 % of the app partition free.
+Flashed over COM14 with hash verified. `status` answers on the console and
+reports TX 18, RX 19, EN GPIO20 (high), init bypass GPIO14, UART1,
+10400 baud, TX compiled in, not armed. The boot banner was not captured:
+the USB port drops during reset and the script reconnected too late.
+
+### Decisions added
+
+| # | Decision | Rationale |
+|---|----------|-----------|
+| 20 | **Retarget to ESP32-C6** rather than buy a classic ESP32 | It is the board in hand; the code was portable except the console |
+| 21 | **TX 18, RX 19, EN/SLP 20, MOSFET gate 14** | All free on this board. Avoids the C6 strapping pins 4, 5, 8, 9 and 15 (on SuperMini-style boards 8 and 15 are often LEDs too) and UART0 on 16/17 |
+| 22 | **Console over built-in USB** | The C6 enumerates as its own COM port; no USB-UART bridge on the board |
+
+## 18. Where this stands — stopping point, 2026-10-16
+
+**The right transceiver and a working ESP32 are both in hand.** A genuine
+NXP TJA1021 with no MCU in the way, and an ESP32-C6 running the firmware.
+Nothing is blocked on a decision; the next steps are bench measurements.
 
 **Settled this session:**
 
 - Second module identified as a plain TJA1021 breakout (1021T2C). It
   replaces the U7X54911; HARDWARE.md has a new section for it, with the
   old one marked superseded.
-- Wiring decided (decision 18). No firmware change.
-- PLAN.md, README status and the risk register updated.
+- Header mapped: pins 1–3 are the `HOST`/`SLAVE` jumper block; RX and TX
+  are only on the screw terminal.
+- ESP32 identified as a C6; firmware retargeted, flashed, console verified
+  (§17). All docs carry the C6 pin mapping.
 
 **Next moves, in order:** all on the bench, none near the car, with 12 V on
 `VCC`/`GND` and the ESP32 *not* connected:
 
 1. **`RX` terminal to GND: expect ~3.3 V.** If ~5 V, do not connect
-   GPIO16; re-pull RXD to 3.3 V first.
+   GPIO19; re-pull RXD to 3.3 V first.
 2. **`TX` and `SLP` open-circuit voltages**, to learn the board's default
    pulls.
 3. **Pull-up load test**, cap on `HOST`, on `SLAVE`, then none: measure `LIN`,
    then again with 1 kΩ `LIN`→`GND`. Decides between adding 1 kΩ in
    parallel and fitting the full 510 Ω.
-4. Wire per decision 18, then §13's moves 2 and 3 unchanged: flash,
-   `status`, `arm --yes`, `send 55` for the echo test.
+4. Wire GPIO18→`TX`, GPIO19→`RX`, GPIO20→`SLP`, GND→`GND`. Run `status`,
+   then `arm --yes` and `send 55` for the echo test. The firmware is
+   already flashed.
 
 **Still waiting on:** bypass MOSFET parts (2N7002/BSS138, 1 kΩ, 100 kΩ),
 510 Ω, TVS, buck converter, inline fuse; the KKL 409.1 cable; and **the
