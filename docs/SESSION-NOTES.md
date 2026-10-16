@@ -796,8 +796,13 @@ bench measurements on the transceiver board.
     from the board itself; a browser flasher on GitHub Pages;
   - the repo is now public.
 - **First flash of any board needs a full erase** (§21, decision 28).
+- **Bench test procedure written down** in
+  [HARDWARE.md — Bench testing before the car](HARDWARE.md#bench-testing-before-the-car):
+  six steps with expected readings and a failure table, replacing the old
+  four-line version. Linked from PLAN Phase 3 and the README.
 
-**Next moves, in order.** All on the bench, none near the car:
+**Next moves, in order.** All on the bench, none near the car; the full
+procedure is the HARDWARE.md section above:
 
 1. **Board checks, unpowered side first:** 12 V on `VCC`/`GND`, nothing on
    the logic side. `RX` terminal must read ~3.3 V, not 5 V. Note `TX` and
