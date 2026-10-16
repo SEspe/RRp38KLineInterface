@@ -119,13 +119,18 @@ risk.
 | D2, D5 | RX and TX activity LEDs |
 | Two small regulators | Feed the `3V3` header pin. Whether either makes 5 V is **unverified** |
 | Terminals | `VCC / LIN / GND` on the bus side; `RX / TX / GND` on the logic side |
-| Header | `HOST / SLAVE / GND / 3V3 / SLP / WAKE / INH` |
+| Header | 8 pins, single row. Pins 1–3: `HOST` / common / `SLAVE` jumper block. Pins 4–8: `GND` / `3V3` / `SLP` / `WAKE` / `INH`. **No RX or TX on the header**: those are only on the screw terminal |
 
 Chip close-up: [images/tja1021-breakout-u2.jpg](images/tja1021-breakout-u2.jpg).
 
-`HOST / SLAVE` is almost certainly a jumper that switches a 1 kΩ + diode
-master pull-up onto `LIN`. That is inferred from the labels, not traced.
-Measure it with the powered test below rather than assuming.
+`HOST / SLAVE` is a **3-pin jumper block**; a silkscreen line separates it
+from pins 4–8. A cap on pins 1–2 selects `HOST`, on 2–3 `SLAVE`. `HOST` is
+presumed to switch a 1 kΩ + diode master pull-up onto `LIN`. That is
+inferred from the labels, not traced; the powered test below confirms it.
+**Fit the cap on `HOST` (pins 1–2) for K-line.**
+
+Do not tie the board's `3V3` pin to the ESP32's 3V3: two regulators in
+parallel can back-feed each other. Use it only as a probe point.
 
 ### Wiring
 
@@ -133,8 +138,8 @@ Measure it with the powered test below rather than assuming.
 |-------|---------|------|
 | GPIO17 (TX) | `TX` terminal | Direct; nothing else drives it |
 | GPIO16 (RX) | `RX` terminal | Direct, **once it is confirmed to idle at 3.3 V** |
-| GPIO21 (EN) | `SLP` header pin | `CONFIG_RRP38_EN_GPIO` |
-| GND | `GND` terminal | Common ground |
+| GPIO21 (EN) | `SLP` header pin 6 | `CONFIG_RRP38_EN_GPIO`. Only on the header |
+| GND | `GND` terminal or header pin 4 | Common ground; same net |
 | — | `VCC` terminal | +12 V, fused |
 | — | `LIN` terminal | K-line; bypass MOSFET drain also goes here |
 
@@ -153,10 +158,11 @@ through the chip.
 3. **`SLP` to GND**, open: tells whether the board holds the chip awake by
    itself. The firmware drives it either way.
 4. **Master pull-up**, the
-   [powered load test](#master-pull-up--powered-test-bench-only), done **twice**:
-   once with the jumper on `HOST`, once on `SLAVE`. The difference shows
-   what the jumper actually switches and settles the pull-up value. Use
-   `HOST` for K-line.
+   [powered load test](#master-pull-up--powered-test-bench-only), done **three times**:
+   cap on `HOST` (expect ~5 V under load if a 1 kΩ master pull-up is
+   switched in), cap on `SLAVE` (expect < 1 V: chip termination only), and
+   no cap. The differences show what the jumper actually switches and
+   settle the pull-up value. Use `HOST` for K-line.
 
 ## The first module — U7X54911 "TTL to LIN Bus TJA1021 Module"
 

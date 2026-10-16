@@ -508,8 +508,12 @@ bare transceiver breakout §12 originally assumed it was buying.
 - **D3 = SS34** Schottky, probably reverse-polarity protection on `VCC`.
   This fits §14's explanation of the inconclusive 10 MΩ reading.
 - **R8 = `472`** (4.7 kΩ), plausibly the RXD pull-up. Unverified.
-- `HOST / SLAVE` is presumed to switch a 1 kΩ + diode master pull-up onto
-  `LIN`. This is inferred from the labels, not traced.
+- The header has 8 pins. **Pins 1–3 are a `HOST` / common / `SLAVE`
+  jumper block** (cap 1–2 = HOST), separated by silkscreen from
+  `GND / 3V3 / SLP / WAKE / INH` on pins 4–8. There are **no RX or TX pins
+  on the header**, so those stay on the screw terminal. `HOST` is presumed
+  to switch a 1 kΩ + diode master pull-up onto `LIN`. This is inferred
+  from the labels, not traced.
 
 Photos: `docs/images/tja1021-breakout.png` (whole board),
 `docs/images/tja1021-breakout-u2.jpg` (chip and passives).
@@ -543,7 +547,7 @@ measurements.
    GPIO16; re-pull RXD to 3.3 V first.
 2. **`TX` and `SLP` open-circuit voltages**, to learn the board's default
    pulls.
-3. **Pull-up load test**, jumper on `HOST` then on `SLAVE`: measure `LIN`,
+3. **Pull-up load test**, cap on `HOST`, on `SLAVE`, then none: measure `LIN`,
    then again with 1 kΩ `LIN`→`GND`. Decides between adding 1 kΩ in
    parallel and fitting the full 510 Ω.
 4. Wire per decision 18, then §13's moves 2 and 3 unchanged: flash,

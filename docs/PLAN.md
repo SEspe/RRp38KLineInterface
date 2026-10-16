@@ -55,8 +55,8 @@ faults can be told apart.
 - [x] ~~Bypass the U7X54911's MCU~~ — superseded: a **plain TJA1021
       breakout** with no MCU arrived 2026-10-16
 - [ ] **Bench-check the plain breakout** — `RX` idles at 3.3 V, `TX`/`SLP`
-      defaults, and the powered 1 kΩ-load pull-up test with the jumper on
-      `HOST` and on `SLAVE`. See [HARDWARE.md](HARDWARE.md#the-module-to-use--plain-tja1021-breakout-no-mcu)
+      defaults, and the powered 1 kΩ-load pull-up test with the jumper cap on
+      `HOST`, on `SLAVE`, and off. See [HARDWARE.md](HARDWARE.md#the-module-to-use--plain-tja1021-breakout-no-mcu)
 - [ ] Order a **KKL 409.1 cable, FTDI FT232RL version**
 - [ ] Order the supporting parts: automotive 12 V→5 V buck, 510 Ω, 100 nF ×2,
       1 A inline fuse, TVS on the 12 V rail
