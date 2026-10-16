@@ -60,8 +60,8 @@ Both must be open before a single byte leaves the ESP32.
 | [docs/INTERFACE-MODULES.md](docs/INTERFACE-MODULES.md) | Which transceiver to buy, comparison table, what to check on arrival |
 | [docs/HARDWARE.md](docs/HARDWARE.md) | Socket pinout, reference circuits, wiring for the TJA1021 module in hand, bench test procedure |
 
-Current status: **firmware complete and building; TJA1021 module received
-and needs its onboard MCU bypassed before bench bring-up** (PLAN.md
+Current status: **firmware complete and building; a plain TJA1021
+breakout (no MCU) received 2026-10-16, ready for bench checks** (PLAN.md
 Phase 2, HARDWARE.md).
 
 ## Hardware

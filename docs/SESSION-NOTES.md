@@ -485,6 +485,77 @@ EKA code**, still the one outstanding item that costs nothing.
 TJA1021's 27 ms guaranteed minimum. Settle it on the bench once the echo
 test passes.
 
+---
+
+# Addendum — 2026-10-16
+
+## 16. A plain TJA1021 breakout arrived — no MCU
+
+A second LIN module arrived. Terminals `VCC / LIN / GND` and
+`RX / TX / GND`, header `HOST / SLAVE / GND / 3V3 / SLP / WAKE / INH`.
+Close-up photos (zip from Downloads, cropped and contrast-boosted with
+System.Drawing) showed **one SO8 and no microcontroller**, so this is the
+bare transceiver breakout §12 originally assumed it was buying.
+
+- **U2: NXP TJA1021**, marking *NXP / 1021T2C* (the fourth digit was
+  confirmed by eye, since the photos left it ambiguous between 1020 and
+  1021). Most likely ordering code TJA1021T/20/C: 20 kBd slope variant,
+  revision C. §12's datasheet analysis applies unchanged: fast init works
+  through the chip, slow init needs the bypass MOSFET.
+- The 1020/1021 distinction mattered: the TJA1020's TxD timeout is much
+  shorter (about 6 ms minimum, from memory and not checked), which would
+  have broken fast init too.
+- **D3 = SS34** Schottky, probably reverse-polarity protection on `VCC`.
+  This fits §14's explanation of the inconclusive 10 MΩ reading.
+- **R8 = `472`** (4.7 kΩ), plausibly the RXD pull-up. Unverified.
+- `HOST / SLAVE` is presumed to switch a 1 kΩ + diode master pull-up onto
+  `LIN`. This is inferred from the labels, not traced.
+
+Photos: `docs/images/tja1021-breakout.png` (whole board),
+`docs/images/tja1021-breakout-u2.jpg` (chip and passives).
+
+### Decisions added
+
+| # | Decision | Rationale |
+|---|----------|-----------|
+| 17 | **Use the plain breakout; the U7X54911 becomes a fallback** | No MCU means decisions 14–16 (reset wire, leg soldering, 1 kΩ series resistors) are unnecessary, and the risk of an MCU transmitting on the car's bus is gone |
+| 18 | ESP32 wires to the **screw terminals and `SLP` header pin directly** | GPIO17→`TX`, GPIO16→`RX`, GPIO21→`SLP`, common GND. Nothing else drives those lines, so no series resistors. `sdkconfig.ncv.defaults` unchanged |
+| 19 | **Run the pull-up load test with the jumper in both positions** | One test shows what the `HOST/SLAVE` jumper actually does *and* settles the pull-up value, rather than trusting the silkscreen |
+
+## 17. Where this stands — stopping point, 2026-10-16
+
+**The right board is in hand.** A genuine NXP TJA1021 with no MCU in the
+way. Nothing is blocked on a decision; the next steps are bench
+measurements.
+
+**Settled this session:**
+
+- Second module identified as a plain TJA1021 breakout (1021T2C). It
+  replaces the U7X54911; HARDWARE.md has a new section for it, with the
+  old one marked superseded.
+- Wiring decided (decision 18). No firmware change.
+- PLAN.md, README status and the risk register updated.
+
+**Next moves, in order:** all on the bench, none near the car, with 12 V on
+`VCC`/`GND` and the ESP32 *not* connected:
+
+1. **`RX` terminal to GND: expect ~3.3 V.** If ~5 V, do not connect
+   GPIO16; re-pull RXD to 3.3 V first.
+2. **`TX` and `SLP` open-circuit voltages**, to learn the board's default
+   pulls.
+3. **Pull-up load test**, jumper on `HOST` then on `SLAVE`: measure `LIN`,
+   then again with 1 kΩ `LIN`→`GND`. Decides between adding 1 kΩ in
+   parallel and fitting the full 510 Ω.
+4. Wire per decision 18, then §13's moves 2 and 3 unchanged: flash,
+   `status`, `arm --yes`, `send 55` for the echo test.
+
+**Still waiting on:** bypass MOSFET parts (2N7002/BSS138, 1 kΩ, 100 kΩ),
+510 Ω, TVS, buck converter, inline fuse; the KKL 409.1 cable; and **the
+EKA code**.
+
+**Still open from §13:** whether fast init survives the TJA1021's 27 ms
+guaranteed minimum in practice. Settle it once the echo test passes.
+
 ## Sources
 
 - [NXP TJA1021 datasheet, rev. 9](https://www.nxp.com/docs/en/data-sheet/TJA1021.pdf)

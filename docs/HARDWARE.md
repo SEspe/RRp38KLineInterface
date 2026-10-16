@@ -100,7 +100,68 @@ level**. Pull it to 3.3 V and the ESP32 sees 3.3 V, with no divider needed.
 - **Slow init needs the bypass MOSFET below. Fast init does not** — see
   the TXD timeout note.
 
-## The module in hand — U7X54911 "TTL to LIN Bus TJA1021 Module"
+## The module to use — plain TJA1021 breakout (no MCU)
+
+Received 2026-10-16. **This is the bare transceiver breakout originally
+wanted.** The TJA1021 is wired straight to the logic-side screw terminals,
+and there is no microcontroller anywhere on the board. It replaces the
+U7X54911 below: no reset wire, no soldering to chip legs, no contention
+risk.
+
+![Plain TJA1021 breakout](images/tja1021-breakout.png)
+
+| Part | Identification |
+|------|----------------|
+| U2, SO8 | **NXP TJA1021**, marking *NXP / 1021T2C*. Most likely ordering code TJA1021T/20/C: 20 kBd slope variant, revision C. Fine at 10400. Everything in the TJA1021 section above applies |
+| D3 | **SS34** Schottky, probably reverse-polarity protection on `VCC` |
+| R8 | `472` = 4.7 kΩ, plausibly the RXD pull-up. **Unverified** |
+| R7 | 0 Ω link |
+| D2, D5 | RX and TX activity LEDs |
+| Two small regulators | Feed the `3V3` header pin. Whether either makes 5 V is **unverified** |
+| Terminals | `VCC / LIN / GND` on the bus side; `RX / TX / GND` on the logic side |
+| Header | `HOST / SLAVE / GND / 3V3 / SLP / WAKE / INH` |
+
+Chip close-up: [images/tja1021-breakout-u2.jpg](images/tja1021-breakout-u2.jpg).
+
+`HOST / SLAVE` is almost certainly a jumper that switches a 1 kΩ + diode
+master pull-up onto `LIN`. That is inferred from the labels, not traced.
+Measure it with the powered test below rather than assuming.
+
+### Wiring
+
+| ESP32 | Goes to | Note |
+|-------|---------|------|
+| GPIO17 (TX) | `TX` terminal | Direct; nothing else drives it |
+| GPIO16 (RX) | `RX` terminal | Direct, **once it is confirmed to idle at 3.3 V** |
+| GPIO21 (EN) | `SLP` header pin | `CONFIG_RRP38_EN_GPIO` |
+| GND | `GND` terminal | Common ground |
+| — | `VCC` terminal | +12 V, fused |
+| — | `LIN` terminal | K-line; bypass MOSFET drain also goes here |
+
+`WAKE` and `INH` stay unconnected. `sdkconfig.ncv.defaults` applies
+unchanged. The bypass MOSFET is still needed for slow init; fast init works
+through the chip.
+
+### Bench checks before the ESP32 is connected
+
+12 V on `VCC` / `GND`, nothing else on `LIN`, nothing on the logic side.
+
+1. **`RX` terminal to GND: expect ~3.3 V.** If it reads ~5 V, do not
+   connect GPIO16. Re-pull RXD to 3.3 V first.
+2. **`TX` terminal to GND**, open: tells whether the board pulls TXD up,
+   and to what.
+3. **`SLP` to GND**, open: tells whether the board holds the chip awake by
+   itself. The firmware drives it either way.
+4. **Master pull-up**, the
+   [powered load test](#master-pull-up--powered-test-bench-only), done **twice**:
+   once with the jumper on `HOST`, once on `SLAVE`. The difference shows
+   what the jumper actually switches and settles the pull-up value. Use
+   `HOST` for K-line.
+
+## The first module — U7X54911 "TTL to LIN Bus TJA1021 Module"
+
+**Superseded by the plain breakout above.** Kept as a fallback and for
+the record.
 
 Received and inspected 2026-09-30. **It is not a bare transceiver
 breakout.** It has a microcontroller between its screw terminals and the
@@ -172,8 +233,9 @@ it lets go of TXD and SLP_N.
 
 ### Master pull-up — powered test (bench only)
 
-12 V on `VCC` / `GND`, nothing else on `LIN`, ESP32 not connected. The MCU
-will run; on the bench that is harmless.
+Applies to either board. 12 V on `VCC` / `GND`, nothing else on `LIN`,
+ESP32 not connected. On the U7X54911 the MCU will run; on the bench that is
+harmless.
 
 1. Measure `LIN` to `GND` — expect ~10–11 V, the bus resting high.
 2. Put a **1 kΩ from `LIN` to `GND`** and measure again:
