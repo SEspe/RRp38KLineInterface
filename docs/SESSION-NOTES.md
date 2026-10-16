@@ -524,7 +524,7 @@ Photos: `docs/images/tja1021-breakout.png` (whole board),
 |---|----------|-----------|
 | 17 | **Use the plain breakout; the U7X54911 becomes a fallback** | No MCU means decisions 14–16 (reset wire, leg soldering, 1 kΩ series resistors) are unnecessary, and the risk of an MCU transmitting on the car's bus is gone |
 | 18 | ESP32 wires to the **screw terminals and `SLP` header pin directly** | GPIO17→`TX`, GPIO16→`RX`, GPIO21→`SLP`, common GND. Nothing else drives those lines, so no series resistors. `sdkconfig.ncv.defaults` unchanged |
-| 19 | **Run the pull-up load test with the jumper in both positions** | One test shows what the `HOST/SLAVE` jumper actually does *and* settles the pull-up value, rather than trusting the silkscreen |
+| 19 | **Run the pull-up load test with the cap on HOST, on SLAVE, and off** | One test shows what the `HOST/SLAVE` jumper actually does *and* settles the pull-up value, rather than trusting the silkscreen |
 
 ## 17. Where this stands — stopping point, 2026-10-16
 
