@@ -800,6 +800,12 @@ bench measurements on the transceiver board.
   [HARDWARE.md — Bench testing before the car](HARDWARE.md#bench-testing-before-the-car):
   six steps with expected readings and a failure table, replacing the old
   four-line version. Linked from PLAN Phase 3 and the README.
+- **README encoding repaired** (`86b8bd3`). A `perl -0pi` edit in
+  `0c23007` read the file as Latin-1 and wrote it back as UTF-8, so all 13
+  dashes and arrows showed as `â` + garbage on GitHub. Fixed by decoding
+  only the runs that round-trip back to valid UTF-8; the result matches the
+  README before that commit character for character. No other tracked file
+  was affected. Docs are edited with the editor tool from now on, not perl.
 
 **Next moves, in order.** All on the bench, none near the car; the full
 procedure is the HARDWARE.md section above:
