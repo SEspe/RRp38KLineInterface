@@ -562,7 +562,7 @@ the USB port drops during reset and the script reconnected too late.
 | 21 | **TX 18, RX 19, EN/SLP 20, MOSFET gate 14** | All free on this board. Avoids the C6 strapping pins 4, 5, 8, 9 and 15 (on SuperMini-style boards 8 and 15 are often LEDs too) and UART0 on 16/17 |
 | 22 | **Console over built-in USB** | The C6 enumerates as its own COM port; no USB-UART bridge on the board |
 
-### Passive build retargeted, and an EN bug caught
+## 18. Passive build retargeted, and an EN bug caught
 
 The plain `build/` (TX compiled out, for Phase 4 in the car) was
 retargeted with `set-target esp32c6` and builds (206 KB, 80 % free).
@@ -771,55 +771,53 @@ run on deprecated Node 20, and `ubuntu-latest` moves to Ubuntu 26 from
 
 ## 24. Where this stands — stopping point, 2026-10-16
 
-**The right transceiver and a working ESP32 are both in hand.** A genuine
-NXP TJA1021 with no MCU in the way, and an ESP32-C6 running the firmware.
-Nothing is blocked on a decision; the next steps are bench measurements.
+**Both halves of the interface are in hand and the software side is
+finished for now.** A genuine NXP TJA1021 breakout with no MCU in the way,
+and an ESP32-C6 running v0.4.0 with a web page, live sniff view and OTA
+from GitHub releases. Nothing is blocked on a decision. The next steps are
+bench measurements on the transceiver board.
 
 **Settled this session:**
 
-- Second module identified as a plain TJA1021 breakout (1021T2C). It
-  replaces the U7X54911; HARDWARE.md has a new section for it, with the
-  old one marked superseded.
-- Header mapped: pins 1–3 are the `HOST`/`SLAVE` jumper block; RX and TX
-  are only on the screw terminal.
-- ESP32 identified as a C6; firmware retargeted, flashed, console verified
-  (§17). All docs carry the C6 pin mapping. Both builds (passive `build/`
-  and TX `build_ncv/`) target the C6 and drive EN (decision 23).
-- Web HMI and OTA planned as PLAN.md Track H, copying SlaveWallas
-  (§19, decisions 24–27). Read-only from the web at first; AP + STA.
-- Track H steps 1–3 built, flashed, AP on air after a full erase (§20,
-  §21, decisions 28–29). Firmware is now v0.2.0 with OTA partitions.
-- Page works on a phone; OTA verified over home WiFi; Track H step 4
-  (sniff view, bus claim) built and running as v0.3.0 (§22, decisions
-  30–31). The board is on home WiFi at 192.168.10.218.
-- Track H complete (§23, decisions 32–34): install from GitHub, release
-  CI and the browser flasher, verified end to end. The repo is public.
-  The board runs the CI-built v0.4.0 tx image.
+- **Transceiver:** a plain TJA1021 breakout (1021T2C, §16) replaces the
+  MCU-fronted U7X54911. Header mapped: pins 1–3 are the `HOST`/`SLAVE`
+  jumper block, `SLP` is pin 6, and RX/TX are only on the screw terminal.
+- **ESP32:** identified as an ESP32-C6FH4 (§17). Firmware retargeted,
+  console on built-in USB, pins TX 18 / RX 19 / SLP 20 / MOSFET gate 14.
+  Every build now drives EN (§18).
+- **Track H, web HMI and OTA, done** (§19–§23, decisions 24–34):
+  - always-on access point `RRp38-KLine` at 192.168.4.1, plus home WiFi
+    (the board is at 192.168.10.218);
+  - Status, Sniff, WiFi and OTA tabs, read-only towards the K-line except
+    for starting and stopping a passive capture;
+  - a bus claim so console commands and a web capture never share the
+    UART, and no OTA while the line is in use;
+  - releases from a `v*` tag with a passive and a tx image each, installed
+    from the board itself; a browser flasher on GitHub Pages;
+  - the repo is now public.
+- **First flash of any board needs a full erase** (§21, decision 28).
 
-**Next moves, in order:** all on the bench, none near the car, with 12 V on
-`VCC`/`GND` and the ESP32 *not* connected:
+**Next moves, in order.** All on the bench, none near the car:
 
-1. **`RX` terminal to GND: expect ~3.3 V.** If ~5 V, do not connect
-   GPIO19; re-pull RXD to 3.3 V first.
-2. **`TX` and `SLP` open-circuit voltages**, to learn the board's default
-   pulls.
-3. **Pull-up load test**, cap on `HOST`, on `SLAVE`, then none: measure `LIN`,
-   then again with 1 kΩ `LIN`→`GND`. Decides between adding 1 kΩ in
-   parallel and fitting the full 510 Ω.
-4. Wire GPIO18→`TX`, GPIO19→`RX`, GPIO20→`SLP`, GND→`GND`. Run `status`,
-   then `arm --yes` and `send 55` for the echo test. The firmware is
-   already flashed.
+1. **Board checks, unpowered side first:** 12 V on `VCC`/`GND`, nothing on
+   the logic side. `RX` terminal must read ~3.3 V, not 5 V. Note `TX` and
+   `SLP` open-circuit voltages.
+2. **Pull-up load test**, jumper cap on `HOST`, on `SLAVE`, then none:
+   `LIN`→`GND` voltage, then again with 1 kΩ `LIN`→`GND`. Decides between
+   adding 1 kΩ in parallel and fitting the full 510 Ω.
+3. **Wire it:** GPIO18→`TX`, GPIO19→`RX`, GPIO20→`SLP`, GND→`GND`.
+   `status`, then `arm --yes` and `send 55`: a clean echo is Phase 3's exit
+   criterion.
+4. **With WiFi up:** repeat the echo test, then a web capture while
+   `send`ing from the console is refused (expected), then fast init.
 
-**Web HMI (Track H), in parallel:**
+**Small things for the web side:**
 
-1. ~~Phone test~~ done; ~~OTA test~~ done (§22). **Change the AP
-   password** from the default.
-2. **Sniff frame display:** during a web capture, touch a wire from GND to
-   GPIO19 a few times. Each touch should appear as a frame of `00` bytes.
-   Or wait for real traffic once the transceiver is wired.
-3. ~~Steps 5–6~~ done (§23). New releases: bump `FIRMWARE_VERSION`,
-   commit, push, tag `v<same>`.
-4. Once the transceiver is wired: re-run the echo test with WiFi up.
+- **Change the AP password.** The default `rrp38kline` is now public.
+- The Sniff tab's frame list has not yet shown a frame. Touching GND to
+  GPIO19 during a capture should produce `00` frames; real traffic will
+  come with the transceiver.
+- New release: bump `FIRMWARE_VERSION`, commit, push, tag `v<same>`.
 
 **Still waiting on:** bypass MOSFET parts (2N7002/BSS138, 1 kΩ, 100 kΩ),
 510 Ω, TVS, buck converter, inline fuse; the KKL 409.1 cable; and **the
@@ -843,3 +841,5 @@ guaranteed minimum in practice. Settle it once the echo test passes.
 - [NXP AN00093 — TJA1020 LIN transceiver](https://www.nxp.com/docs/en/application-note/AN00093.pdf)
 - [ST L9637 datasheet](https://www.st.com/resource/en/datasheet/l9637.pdf)
 - [eBay 287315145186 — TTL to LIN Bus TJA1021 Module U7X54911](https://www.ebay.com/itm/287315145186)
+- [SEspe/RemoteStart](https://github.com/SEspe/RemoteStart) — SlaveWallas, the template for the web server, OTA, release and flasher workflows (FSD §7, §8, §11.1)
+- [esp-web-tools](https://esphome.github.io/esp-web-tools/) — the browser flasher

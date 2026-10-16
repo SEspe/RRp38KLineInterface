@@ -8,8 +8,9 @@ was.
 **Status: Phase 1 complete. Phase 2 in progress — a plain TJA1021 breakout
 with no MCU (marking 1021T2C) received 2026-10-16. It replaces the
 MCU-fronted U7X54911 from 2026-09-30, so no bypass is needed. The ESP32
-turned out to be an ESP32-C6; the firmware is retargeted and flashed. Next:
-the powered bench checks in HARDWARE.md, then Phase 3.**
+turned out to be an ESP32-C6; the firmware is retargeted and runs v0.4.0.
+Track H (web HMI, OTA from GitHub) is done. Next: the powered bench
+checks in HARDWARE.md, then Phase 3.**
 
 ---
 
