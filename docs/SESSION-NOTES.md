@@ -1139,6 +1139,24 @@ specification from Webasto service documentation or a verified source.
 disturb the P38 ECU. Keep the heater off this bus until its protocol is
 confirmed.
 
+**Update: the W-Bus framing does not match our K-line.** A summary of the
+[H4jen/webasto repository](https://github.com/H4jen/webasto) (a fetch
+summary, not read line by line) says:
+
+- The W-Bus is a K-line, citing ISO 9141, with 0 to 12 V signalling. LIN
+  is not mentioned.
+- Serial format: **2400 baud, 8E1** (even parity). Our K-line is 10400
+  baud, 8N1, the ISO 9141 setting in `kline.c`. The W-Bus would not work
+  with the current firmware settings even if the wiring matched.
+- Init: fixed packets such as `F4 03 51 0A AC`, with `F4` on requests and
+  `4F` on responses. That is not the ISO 9141 5-baud init we implement.
+- Tested on an Air Top Evo 40 in a boat cabin. The repository does not say
+  whether any other heater, or any car, was tested.
+
+So the W-Bus is a K-line in the physical sense, but its framing and init
+differ from ours. Section 29's "protocol not verified" still stands, and
+the heater's bus cannot share our K-line settings.
+
 ## Sources
 
 - [NXP TJA1021 datasheet, rev. 9](https://www.nxp.com/docs/en/data-sheet/TJA1021.pdf)
