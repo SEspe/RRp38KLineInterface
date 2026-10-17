@@ -958,8 +958,8 @@ several times and not given. Take it on the next run.
 
 - **RX on GPIO19 is still unexplained.** The §25 steady low was not
   reproduced in this session: the wire was off and the line read 3.3 V.
-  The earlier high-with-no-edges sample (§25 step 1) was taken with the
-  wire on, so it is not a clean test either. Reconnect and repeat `wave -p rx`.
+  The high-with-no-edges sample at the start of this session, before the
+  bench work, did not record the wire state, so it is not a clean test.
 - **LAN-only operation** (AP off, home WiFi only) is still undecided. Options
   A, B and C are in the previous session's reply; no code has changed.
 - The 12 V current draw (above).
