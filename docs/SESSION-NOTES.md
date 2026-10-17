@@ -1074,6 +1074,13 @@ been replaced after an RX-low fault (§26). It was not checked further, and
 the cause is not known. It had been powered with 12 V on `LIN` during a
 wiring mistake, so that is one candidate; a fault from new is another.
 
+**Update, later on 2026-10-18: both breakouts pass.** The board wired at
+the time of the check passed the echo test (`send 55` with no echo error,
+and `bbsend 55` matched). The user reports both boards OK. Which board was
+in for that check was not recorded at the time, so the second breakout's
+earlier failure is still unexplained. It has not been re-tested as its own
+board, and the note above stands as the record of what was seen.
+
 **The first breakout failed once, then passed.** On the swap back, the first
 breakout's `send 55` and `bbsend 55` failed in one session and passed in the
 next, with no change to the wiring recorded. The failure has not been
