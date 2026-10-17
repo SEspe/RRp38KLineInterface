@@ -982,6 +982,81 @@ several times and not given. Take it on the next run.
 | 40 | **Master pull-up is 560 Ω from 12 V to `LIN`, in parallel with the `HOST` pull-up** | Measured total is about 650 Ω, within the usual K-line range. Adding more was judged unnecessary |
 | 41 | **Bench procedure steps 1 to 4 are signed off on the plain breakout** | Every reading matches the expected band, apart from the two readings that were re-taken for contact |
 
+## 27. Echo test passes on the new breakout — stopping point, 2026-10-17
+
+**Phase 3's exit criterion is met.** On a new TJA1021 breakout, with the
+bench wiring from §26 (GPIO18 to `TX`, GPIO19 to `RX`, GPIO20 to `SLP`, GND
+to `GND`), 12 V on `VCC`, the `HOST` cap on, a 560 Ω from 12 V to `LIN`, and
+nothing connected to the car, every byte sent came back on RX and was
+consumed by `kline_write`:
+
+- `send 55`, `send FF`, `send 00`, `send A5`, `send 5A`: each one printed
+  its `TX:` line and no echo error.
+- `send 81 12 F1 81 00`: the five-byte frame echoed cleanly.
+- `bbsend 55`: bit-banged on GPIO, echo `55` (match).
+
+The `RX: (no response within 500ms)` line after each send is expected: there
+is no ECU on the bench, so nothing answers. It is not an echo fault.
+
+**What was wrong, in order.**
+
+1. **Stale RX before each byte.** `kline_write` wrote without clearing the
+   UART receive buffer, so a late echo was read as a later byte's echo. Fixed
+   in `60f5131`: `kline_flush_rx()` before each write. This is why the first
+   retries showed `0x00` and `0x55` for the wrong bytes.
+2. **The first board's RX path.** On the first breakout, RX at the terminal
+   never went low enough to read as a 0. With the transmitter pulsed by
+   `txlow`, the minimum on the `RX` terminal was 1.277 V with GPIO19
+   connected and 1.9 V with it unplugged. The idle level was 3.3 V. The
+   3.3 V logic supply stayed at 3.3 V under load. The `RX` terminal showed
+   2.0 V to `3V3` and 3.3 V to `GND` at one stage, which is a divider, not a
+   clean pull-up. The first breakout was replaced. This is the working
+   hypothesis for its fault; it was not confirmed by a scope or by a second
+   measurement on the old board.
+3. **The `send` path itself was fine.** A GPIO18 to GPIO19 loopback
+   (with the transceiver unplugged from both pins) echoed `55` through
+   `bbsend` and gave no error from `send`. The UART TX and RX paths on the
+   ESP32 both work.
+
+**Bench-only tools added this session.** These are in the working tree
+(`main/kline.c`, `main/kline.h`, `main/kline_console.c`), not yet committed:
+
+- `txlow [n]`: `n` pulses of 20 ms low and 20 ms high on TXD, `1..100`,
+  default 10. Under the bus claim; armed only. The 20 ms low stays under the
+  TJA1021's 27 ms dominant timeout. A multimeter on `LIN` dips during the
+  run, which showed the transceiver drives the bus.
+- `bbsend <hh>`: one byte bit-banged on GPIO at 10400 baud, then its echo
+  read. Armed only.
+
+Both are gated by `arm` and `CONFIG_RRP38_ALLOW_TX`, and both were built into
+`build_ncv` and deployed by OTA. The board on the bench runs this build,
+variant `tx`, and reports `0.4.0` in `/api/version`, which doesn't change
+between builds.
+
+**Not recorded:**
+
+- The bench current draw at 12 V (asked for several times; never given).
+- The MIN reading on the new breakout's `RX` terminal during `txlow`. The
+  echo test passed, so it is no longer the deciding measurement, but the
+  number is still missing from the log.
+
+**Still open:**
+
+- **LAN-only operation** (AP off, home WiFi only): options A, B and C from
+  the earlier session are unchanged; nothing has been built.
+- **Scope:** the digital scope is still a separate project (§25 decision 38).
+  The echo test does not need one.
+- **Wiring to the car** has not been done, and the car has not been
+  touched. The next move is the car test, not more bench work.
+
+**Decisions**
+
+| # | Decision | Rationale |
+|---|----------|-----------|
+| 42 | **Clear the UART receive buffer before every byte written** | The echo of a byte that timed out must not be read as the echo of a later byte. The fix is one call and costs nothing on the bus |
+| 43 | **Bench-only `txlow` and `bbsend` stay in the firmware, behind `arm` and `ALLOW_TX`** | They are the only way to test the transceiver and the GPIO path without a car. Both are refused when unarmed and are compiled out when `ALLOW_TX` is off |
+| 44 | **Replace the first breakout rather than chase its RX path** | Its RX could not be brought to a clean low, and a new breakout passed the same test with no other changes |
+
 ## Sources
 
 - [NXP TJA1021 datasheet, rev. 9](https://www.nxp.com/docs/en/data-sheet/TJA1021.pdf)
