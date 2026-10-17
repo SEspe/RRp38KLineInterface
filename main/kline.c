@@ -354,6 +354,9 @@ esp_err_t kline_write(const uint8_t *buf, size_t len)
             vTaskDelay(pdMS_TO_TICKS(KLINE_P4_MS));
         }
 
+        /* Drop stale RX: an echo that arrived after an earlier timeout must
+         * not be read as this byte. */
+        kline_flush_rx();
         if (uart_write_bytes(KL_PORT, &buf[i], 1) != 1) {
             return ESP_FAIL;
         }
