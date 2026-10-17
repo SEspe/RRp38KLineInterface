@@ -1157,6 +1157,13 @@ So the W-Bus is a K-line in the physical sense, but its framing and init
 differ from ours. Section 29's "protocol not verified" still stands, and
 the heater's bus cannot share our K-line settings.
 
+**Decision, 2026-10-18: the Thermo Top V is dropped.** The heater is not
+part of this project. The interface stays on the P38's K-line: the car test
+continues on the first breakout, with the bench echo test run before each
+session. The heater's W-Bus, its CAN lines (pins 4 and 7) and its K-line
+pin (pin 2) are not to be connected to this interface. If a heater is ever
+taken up again, it needs its own protocol capture and its own design note.
+
 ## Sources
 
 - [NXP TJA1021 datasheet, rev. 9](https://www.nxp.com/docs/en/data-sheet/TJA1021.pdf)
