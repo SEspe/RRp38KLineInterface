@@ -386,6 +386,76 @@ esp_err_t kline_write(const uint8_t *buf, size_t len)
 /* Initialisation sequences                                            */
 /* ------------------------------------------------------------------ */
 
+/* Bench test only: drive TXD low and high by hand, with no echo check, so a
+ * multimeter on the bus shows whether the transceiver is pulling it down.
+ * Each low is kept under the TJA1021's 27 ms dominant-timeout minimum. */
+esp_err_t kline_pulse_tx(uint32_t count, uint32_t low_ms, uint32_t high_ms)
+{
+#if !CONFIG_RRP38_ALLOW_TX
+    (void)count;
+    (void)low_ms;
+    (void)high_ms;
+    return ESP_ERR_NOT_SUPPORTED;
+#else
+    if (!kline_tx_possible()) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    uart_wait_tx_done(KL_PORT, pdMS_TO_TICKS(100));
+
+    gpio_set_level((gpio_num_t)KL_TX_GPIO, 1);
+    gpio_set_direction((gpio_num_t)KL_TX_GPIO, GPIO_MODE_OUTPUT);
+    esp_rom_gpio_connect_out_signal(KL_TX_GPIO, SIG_GPIO_OUT_IDX, false, false);
+    for (uint32_t i = 0; i < count; i++) {
+        gpio_set_level((gpio_num_t)KL_TX_GPIO, 0);
+        vTaskDelay(pdMS_TO_TICKS(low_ms));
+        gpio_set_level((gpio_num_t)KL_TX_GPIO, 1);
+        vTaskDelay(pdMS_TO_TICKS(high_ms));
+    }
+    esp_rom_gpio_connect_out_signal(KL_TX_GPIO, KL_TX_SIG, false, false);
+    kline_flush_rx();
+    return ESP_OK;
+#endif
+}
+
+/* Bench test only: send one 8N1 byte at the K-line baud rate by driving GPIO
+ * directly, bypassing the UART TX path, then read its echo. Separates a UART
+ * fault from a wiring or transceiver fault. */
+esp_err_t kline_bitbang_byte(uint8_t byte, uint8_t *echo)
+{
+#if !CONFIG_RRP38_ALLOW_TX
+    (void)byte;
+    (void)echo;
+    return ESP_ERR_NOT_SUPPORTED;
+#else
+    if (!kline_tx_possible()) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    uart_wait_tx_done(KL_PORT, pdMS_TO_TICKS(100));
+    kline_flush_rx();
+
+    /* Start bit (0), eight data bits LSB first, stop bit (1). */
+    uint16_t frame = (uint16_t)((1u << 9) | ((uint16_t)byte << 1));
+    const int64_t bit_us = 1000000 / KL_BAUD;
+
+    gpio_set_level((gpio_num_t)KL_TX_GPIO, 1);
+    gpio_set_direction((gpio_num_t)KL_TX_GPIO, GPIO_MODE_OUTPUT);
+    esp_rom_gpio_connect_out_signal(KL_TX_GPIO, SIG_GPIO_OUT_IDX, false, false);
+
+    int64_t t = esp_timer_get_time();
+    for (int i = 0; i < 10; i++) {
+        gpio_set_level((gpio_num_t)KL_TX_GPIO, (frame >> i) & 1);
+        t += bit_us;
+        while (esp_timer_get_time() < t) {
+        }
+    }
+    gpio_set_level((gpio_num_t)KL_TX_GPIO, 1);
+    esp_rom_gpio_connect_out_signal(KL_TX_GPIO, KL_TX_SIG, false, false);
+
+    int r = uart_read_bytes(KL_PORT, echo, 1, pdMS_TO_TICKS(200));
+    return (r == 1) ? ESP_OK : ESP_ERR_TIMEOUT;
+#endif
+}
+
 esp_err_t kline_slow_init(uint8_t addr, kline_init_result_t *out)
 {
 #if !CONFIG_RRP38_ALLOW_TX

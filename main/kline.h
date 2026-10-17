@@ -75,6 +75,13 @@ void      kline_flush_rx(void);
  * CONFIG_RRP38_ECHO_STRICT is set. */
 esp_err_t kline_write(const uint8_t *buf, size_t len);
 
+/* Bench test: pulse TXD low for low_ms, high for high_ms, count times. Needs
+ * the transmitter armed. Not for use with a car connected. */
+esp_err_t kline_pulse_tx(uint32_t count, uint32_t low_ms, uint32_t high_ms);
+
+/* Bench test: send one byte by bit-banging GPIO, then read its echo. */
+esp_err_t kline_bitbang_byte(uint8_t byte, uint8_t *echo);
+
 /* Read up to max bytes. Waits first_timeout_ms for the first byte, then
  * gap_timeout_ms between bytes; returns when the gap expires or buf is full.
  * Returns the byte count, or a negative value on error. */

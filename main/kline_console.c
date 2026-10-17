@@ -467,6 +467,80 @@ static int cmd_scan_claimed(int argc, char **argv)     { return run_claimed(cmd_
 static int cmd_send_claimed(int argc, char **argv)     { return run_claimed(cmd_send, argc, argv); }
 
 /* ------------------------------------------------------------------ */
+/* txlow - bench test, meter on LIN                                    */
+/* ------------------------------------------------------------------ */
+
+static struct {
+    struct arg_int *count;
+    struct arg_end *end;
+} txlow_args;
+
+static int cmd_txlow(int argc, char **argv)
+{
+    int nerrors = arg_parse(argc, argv, (void **)&txlow_args);
+    if (nerrors != 0) {
+        arg_print_errors(stderr, txlow_args.end, argv[0]);
+        return 1;
+    }
+
+    uint32_t count = (txlow_args.count->count > 0)
+                         ? (uint32_t)txlow_args.count->ival[0] : 10;
+    if (count < 1 || count > 100) {
+        printf("count must be 1..100\n");
+        return 1;
+    }
+
+    printf("TXD low: %" PRIu32 " x (20 ms low, 20 ms high), %" PRIu32 " ms total\n",
+           count, count * 40);
+    esp_err_t err = kline_pulse_tx(count, 20, 20);
+    if (err != ESP_OK) {
+        printf("txlow failed: %s\n", esp_err_to_name(err));
+        return 1;
+    }
+    printf("done\n");
+    return 0;
+}
+
+static int cmd_txlow_claimed(int argc, char **argv)    { return run_claimed(cmd_txlow, argc, argv); }
+
+/* ------------------------------------------------------------------ */
+/* bbsend - bench test, one byte bit-banged on GPIO                    */
+/* ------------------------------------------------------------------ */
+
+static struct {
+    struct arg_str *byte;
+    struct arg_end *end;
+} bbsend_args;
+
+static int cmd_bbsend(int argc, char **argv)
+{
+    int nerrors = arg_parse(argc, argv, (void **)&bbsend_args);
+    if (nerrors != 0) {
+        arg_print_errors(stderr, bbsend_args.end, argv[0]);
+        return 1;
+    }
+
+    char *end = NULL;
+    unsigned long v = strtoul(bbsend_args.byte->sval[0], &end, 16);
+    if (end == bbsend_args.byte->sval[0] || *end != '\0' || v > 0xFF) {
+        printf("give one hex byte, 00..FF\n");
+        return 1;
+    }
+
+    uint8_t echo = 0;
+    printf("BB TX: %02lX\n", v);
+    esp_err_t err = kline_bitbang_byte((uint8_t)v, &echo);
+    if (err != ESP_OK) {
+        printf("no echo (%s)\n", esp_err_to_name(err));
+        return 1;
+    }
+    printf("BB RX echo: %02X %s\n", echo, (echo == (uint8_t)v) ? "(match)" : "(MISMATCH)");
+    return 0;
+}
+
+static int cmd_bbsend_claimed(int argc, char **argv)   { return run_claimed(cmd_bbsend, argc, argv); }
+
+/* ------------------------------------------------------------------ */
 /* registration                                                        */
 /* ------------------------------------------------------------------ */
 
@@ -566,4 +640,26 @@ void kline_console_register(void)
         .argtable = &send_args,
     };
     ESP_ERROR_CHECK(esp_console_cmd_register(&send_cmd));
+
+    txlow_args.count = arg_int0(NULL, NULL, "<n>", "pulses, 1..100 (default 10)");
+    txlow_args.end   = arg_end(1);
+    const esp_console_cmd_t txlow_cmd = {
+        .command  = "txlow",
+        .help     = "Bench test: pulse TXD low 20 ms on / 20 ms off (armed only)",
+        .hint     = NULL,
+        .func     = &cmd_txlow_claimed,
+        .argtable = &txlow_args,
+    };
+    ESP_ERROR_CHECK(esp_console_cmd_register(&txlow_cmd));
+
+    bbsend_args.byte = arg_str1(NULL, NULL, "<hh>", "one byte in hex");
+    bbsend_args.end  = arg_end(1);
+    const esp_console_cmd_t bbsend_cmd = {
+        .command  = "bbsend",
+        .help     = "Bench test: send one byte bit-banged on GPIO (armed only)",
+        .hint     = NULL,
+        .func     = &cmd_bbsend_claimed,
+        .argtable = &bbsend_args,
+    };
+    ESP_ERROR_CHECK(esp_console_cmd_register(&bbsend_cmd));
 }
