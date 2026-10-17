@@ -1164,6 +1164,52 @@ session. The heater's W-Bus, its CAN lines (pins 4 and 7) and its K-line
 pin (pin 2) are not to be connected to this interface. If a heater is ever
 taken up again, it needs its own protocol capture and its own design note.
 
+## 30. Ready for the car, passive sniff first — stopping point, 2026-10-18
+
+**Bench is done. The car is next, and the first session is passive only.**
+
+**Bench state at the end of 2026-10-18:**
+- The first TJA1021 breakout passes the echo test (`send 55`, `bbsend 55`)
+  with the bench wiring and the 560 Ω pull-up from 12 V to `LIN`.
+- The second breakout failed the same test on 2026-10-18, and later both
+  passed. Which board was in for the passing check was not recorded. For
+  the car, use the first breakout only.
+- The board runs the `tx` build (`0.4.0`, running `app0`), transmitter
+  disarmed. The bench-only `txlow` and `bbsend` are in `965e636`.
+
+**Car-side status:**
+- **EKA code:** available. It is kept out of the repo and these notes.
+- **Power:** 12 V from the car's diagnostic socket (pin 16) through an
+  inline fuse to the transceiver's `VCC`. The ESP32 runs from the PC's USB.
+- **Ground:** the car's ground (socket pin 5) goes to the board's `GND`.
+  Whether the PC's ground should be isolated from it is still open; use a
+  battery laptop, or an isolator, if one is available.
+- **Not yet confirmed:** ignition state, which path the PC uses to reach the
+  board, and whether the fuse is in place. These were asked and not answered.
+
+**Plan for the first session:**
+1. Remove the 560 Ω from 12 V to `LIN`, and set the `LIN` jumper to
+   `SLAVE` (chip termination only). The car's own pull-up is the one that
+   should be on the line. Re-check the wiring before the car is plugged in.
+2. Ignition off. Start `sniff` (console or the web Sniff tab) and record
+   whether the bus is quiet.
+3. Ignition on. Record whether the bus wakes and what it carries.
+4. Then, with the sniff running, connect the Nanocom and run a read, so its
+   requests and the ECU's replies can be matched afterwards.
+
+**Rules for this session:**
+- **Passive only.** Do not run `arm`, `send`, `slowinit`, `fastinit` or
+  `scan`. The sniff only listens, and the transmitter stays disarmed.
+- **Do not arm while the Nanocom is talking.** Both would share the K-line.
+- **EKA stays available** in case the ECU or immobiliser needs recovery.
+  Sending from this interface is not part of the first session.
+
+**Still open:**
+- The bench current draw at 12 V (asked for many times; never given).
+- LAN-only operation (AP off, home WiFi only): options A, B and C from the
+  earlier session are unchanged; nothing has been built.
+- The Thermo Top V is dropped (section 29).
+
 ## Sources
 
 - [NXP TJA1021 datasheet, rev. 9](https://www.nxp.com/docs/en/data-sheet/TJA1021.pdf)
