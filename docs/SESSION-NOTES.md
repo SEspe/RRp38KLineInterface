@@ -917,6 +917,70 @@ buck converter, inline fuse and KKL 409.1 cable (§24).
 | 38 | **Digital scope is a separate project, minimum 10 MHz, 2 channels** | The interface stays passive and read-only; the scope gets its own front end and display |
 | 39 | **Deploy to the board by OTA over home WiFi; COM14 is for recovery and console** | The board is reachable at a fixed home address, and a serial session resets the board unless DTR and RTS are held off |
 
+## 26. Bench procedure run on the plain breakout — stopping point, 2026-10-17
+
+**Steps 1 to 4 of the bench procedure (HARDWARE.md) are done** on the plain
+TJA1021 breakout, with 12 V on `VCC`/`GND`, the car side open, and the
+ESP32 disconnected. Nothing has been wired to GPIO18, GPIO19 or GPIO20 yet.
+The next move is the wiring step (§24, step 3), not the car.
+
+**Readings, in order:**
+
+| Check | Reading | Verdict |
+|-------|---------|---------|
+| RX terminal to GND | 3.3 V (GPIO19 wire off) | Pass. Logic side is 3.3 V, safe to connect |
+| TX terminal to GND, open | 3.3 V (first reading 0 V, probe contact) | Pass. TXD pulled up |
+| SLP to GND, open | 3.2 V | Pass. The board holds the chip awake by itself |
+| `HOST` cap, LIN open / 1 kΩ | 11.3 V / 1.8 V | Pull-up present, about 5 to 6 kΩ (estimate) |
+| `SLAVE` cap, LIN open / 1 kΩ | 10.7 V / 0.3 V | Chip termination only, about 35 kΩ |
+| No cap, LIN open / 1 kΩ | 10.45 V / 0.3 V | Chip only. First open reading 2.0 V was a bad contact; re-measured |
+
+**Pull-up fitted:** 560 Ω from the 12 V rail to `LIN`, in parallel with the
+`HOST` pull-up (not to GND). Readings with the `HOST` cap on:
+
+- LIN open: 11.6 V
+- LIN with 1 kΩ to GND: 7.0 V
+
+From those, the total source resistance is about 650 Ω. That is a little
+above the 500 Ω target, and it was accepted as is. Adding a second part to
+reach 500 Ω was judged not needed. No further change to the bus side.
+
+**Correction to the procedure advice.** The step-4 advice given during
+this session said a 1 kΩ test after fitting should read 2 to 3 V. That was
+wrong. The 2 to 3 V band describes the pull-up *before* fitting. A total of
+about 500 Ω gives about 7.7 V on the 1 kΩ test, so 7.0 V is on target. HARDWARE.md
+should be corrected the next time it is edited.
+
+**Not recorded:** the bench supply's current draw at 12 V. It was asked for
+several times and not given. Take it on the next run.
+
+**Still open:**
+
+- **RX on GPIO19 is still unexplained.** The §25 steady low was not
+  reproduced in this session: the wire was off and the line read 3.3 V.
+  The earlier high-with-no-edges sample (§25 step 1) was taken with the
+  wire on, so it is not a clean test either. Reconnect and repeat `wave -p rx`.
+- **LAN-only operation** (AP off, home WiFi only) is still undecided. Options
+  A, B and C are in the previous session's reply; no code has changed.
+- The 12 V current draw (above).
+
+**Next moves, in order:**
+
+1. Switch the bench supply off. Wire GPIO18 to `TX`, GPIO19 to `RX`, GPIO20
+   to `SLP`, and GND to `GND`. The `HOST` cap stays on.
+2. Switch on. Run `status` on the console (DTR and RTS held off) and check
+   `kline` reports the pins and EN as expected.
+3. `arm --yes`, then `send 55`. A clean echo is Phase 3's exit criterion.
+4. With WiFi up, repeat the echo test over the web, check that a web capture
+   refuses `send` while running (expected), then try fast init.
+
+**Decisions**
+
+| # | Decision | Rationale |
+|---|----------|-----------|
+| 40 | **Master pull-up is 560 Ω from 12 V to `LIN`, in parallel with the `HOST` pull-up** | Measured total is about 650 Ω, within the usual K-line range. Adding more was judged unnecessary |
+| 41 | **Bench procedure steps 1 to 4 are signed off on the plain breakout** | Every reading matches the expected band, apart from the two readings that were re-taken for contact |
+
 ## Sources
 
 - [NXP TJA1021 datasheet, rev. 9](https://www.nxp.com/docs/en/data-sheet/TJA1021.pdf)
