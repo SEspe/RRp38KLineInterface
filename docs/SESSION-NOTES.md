@@ -960,6 +960,7 @@ several times and not given. Take it on the next run.
   reproduced in this session: the wire was off and the line read 3.3 V.
   The high-with-no-edges sample at the start of this session, before the
   bench work, did not record the wire state, so it is not a clean test.
+  Reconnect and repeat `wave -p rx`.
 - **LAN-only operation** (AP off, home WiFi only) is still undecided. Options
   A, B and C are in the previous session's reply; no code has changed.
 - The 12 V current draw (above).
