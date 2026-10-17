@@ -1057,6 +1057,53 @@ between builds.
 | 43 | **Bench-only `txlow` and `bbsend` stay in the firmware, behind `arm` and `ALLOW_TX`** | They are the only way to test the transceiver and the GPIO path without a car. Both are refused when unarmed and are compiled out when `ALLOW_TX` is off |
 | 44 | **Replace the first breakout rather than chase its RX path** | Its RX could not be brought to a clean low, and a new breakout passed the same test with no other changes |
 
+## 28. Second breakout fails, first passes again — stopping point, 2026-10-18
+
+**The echo test is the bench gate, and it is passing on the first breakout.**
+On 2026-10-18, with the wiring from §26 and 12 V on `VCC`, the 560 Ω from
+12 V to `LIN` and the `HOST` cap on, every byte sent came back on RX:
+
+- `send 55`, `FF`, `00`, `55`: each printed its `TX:` line with no echo error.
+- `bbsend 55`, `FF`, `00`: each read back the same byte (match).
+
+**The second breakout failed the same test.** It was fitted in place of the
+first, with the same wiring and the same 560 Ω. Result: `send 55` gave
+`no echo for byte 0 (0x55)`, and `bbsend 55` gave `ESP_ERR_TIMEOUT`. Idle RX
+and TX were 3.3 V, so the ESP32 side was not at fault. Before this it had
+been replaced after an RX-low fault (§26). It was not checked further, and
+the cause is not known. It had been powered with 12 V on `LIN` during a
+wiring mistake, so that is one candidate; a fault from new is another.
+
+**The first breakout failed once, then passed.** On the swap back, the first
+breakout's `send 55` and `bbsend 55` failed in one session and passed in the
+next, with no change to the wiring recorded. The failure has not been
+explained. The likely causes are a loose wire or terminal on the bench, or an
+intermittent joint on the breakout. The fault has not recurred across four
+sessions of testing since, which is the best evidence so far. Treat it as
+unresolved until the car test runs without it.
+
+**Not changed this session:**
+
+- No firmware changes. The working tree has `main/kline.c` with the W4
+  comment edit (not mine, not committed), and the bench commands are in
+  `965e636`.
+- The 12 V current draw at the bench is still not recorded.
+
+**Still open:**
+
+- **Car test.** Nothing has been connected to the car. Use the first
+  breakout, with the bench echo test run immediately before each car session.
+- **LAN-only operation** (AP off, home WiFi only): options A, B and C are
+  unchanged; nothing has been built.
+- **Second breakout:** keep it out of the car. Its cause is not known.
+
+**Decisions**
+
+| # | Decision | Rationale |
+|---|----------|-----------|
+| 45 | **The first breakout is the car-test board** | It passed the echo test on every session except one, and the one failure has not recurred. The second has failed and is not trusted |
+| 46 | **Run the bench echo test before each car session** | An intermittent fault is only caught if the test runs first; a passing echo is the only gate we have |
+
 ## Sources
 
 - [NXP TJA1021 datasheet, rev. 9](https://www.nxp.com/docs/en/data-sheet/TJA1021.pdf)
