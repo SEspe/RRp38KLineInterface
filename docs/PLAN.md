@@ -9,8 +9,11 @@ was.
 with no MCU (marking 1021T2C) received 2026-10-16. It replaces the
 MCU-fronted U7X54911 from 2026-09-30, so no bypass is needed. The ESP32
 turned out to be an ESP32-C6; the firmware is retargeted and runs v0.4.0.
-Track H (web HMI, OTA from GitHub) is done. Next: the powered bench
-checks in HARDWARE.md, then Phase 3.**
+Track H (web HMI, OTA from GitHub) is done. Waveform sampler added
+(console `wave`, web Debug tab), deployed to the board by OTA on
+2026-10-17. Bench finding open: RX (GPIO19) reads a steady low with
+TX high; see SESSION-NOTES §25. Next: that check, then the powered
+bench checks in HARDWARE.md, then Phase 3.**
 
 ---
 

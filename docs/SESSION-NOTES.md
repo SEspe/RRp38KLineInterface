@@ -837,6 +837,86 @@ EKA code**.
 **Still open from §13:** whether fast init survives the TJA1021's 27 ms
 guaranteed minimum in practice. Settle it once the echo test passes.
 
+## 25. Waveform sampler, OTA deploy, and an RX pin that reads low — stopping point, 2026-10-17
+
+**Built and deployed this session.** A pin sampler, `main/waveform.c` and
+`main/waveform.h`, with the console command `wave [-p rx|tx] [-t ms]` and a
+web Debug tab (`/api/wave`) that takes the same syntax in its command box.
+Committed as `acfec62`. The project's own functional spec is now
+`FSD_RRp38KLineInterface.md` at the repo root; it replaces the earlier
+reference to RemoteStart's FSD.
+
+- Samples a GPIO input for 1 to 200 ms, records each level change against
+  the CPU cycle counter, and reports level at start, high and low time,
+  shortest complete pulses, and an estimated baud rate. Holds the bus claim,
+  so it refuses during a capture, console command or OTA.
+- **Deployed by OTA** to the board at **192.168.10.218** (home WiFi). The
+  access point at 192.168.4.1 was not reachable from the PC, which was on
+  home WiFi. Image: `build_ncv/RRp38KLineInterface.bin`, 1,274,224 bytes,
+  tx variant. The reboot went to `app1`. Version string still reads 0.4.0,
+  so the new image can't be told apart by version. Bump it before the next
+  release if that matters.
+- Console `wave` was checked over COM14 (TX sample, correct format). The web
+  and console RX readings agree.
+
+**Limits, settled.** The tab is a digital-level diagnostic. It cannot show
+rise time, overshoot or ringing: the polling loop's timing is an estimate of
+1 to 2 µs that I haven't measured, and the input is a logic threshold. Edge
+shape needs a scope. The ADS1220 breakout offered on eBay is a 24-bit
+delta-sigma part at roughly 2 kSPS, so it suits DC and slow levels only.
+
+**Bench finding, still open.** RX (GPIO19) reads a steady low for the full
+50 ms window with no edges. TX (GPIO18) reads high, as it should.
+
+- **Wiring confirmed by continuity:** board RX terminal to GPIO19, board TX
+  terminal to GPIO18. The user calls the whole bus side of the breakout
+  "LIN" (12 V, LIN, GND pads); the logic side is GND, RX, TX.
+- **EN (GPIO20)** is driven high at boot. `kline_release_bus` lowers it
+  only before a reboot, so the transceiver should be enabled.
+- **The "unplugged" test was not clean.** The RX wire was still on the
+  board end at first, as the user clarified later. Redo it with the wire
+  off both ends before drawing a conclusion.
+
+**Gotcha worth remembering:** opening COM14 resets the ESP32-C6, because
+DTR toggles on open. Set `DtrEnable` and `RtsEnable` to false before
+opening, and the console stays up.
+
+**Next moves, in order:**
+
+1. Disconnect the RX wire from GPIO19 at both ends. Run `wave -p rx -t 50`
+   on COM14 with DTR and RTS off. High means the transceiver or its wire is
+   holding RX low. Low means the board is holding it low.
+2. Bench supply at 12 V, current limit 0.2 to 0.5 A, on the bus side (VCC
+   and GND). Keep LIN open to the car. Join the bench ground to the board
+   ground. Measure the board's RX terminal to GND: about 3.3 V is expected.
+   Near 0 V points at the 4.7 kΩ RXD pull-up or the transceiver's mode.
+3. Put the RX wire back on GPIO19 and repeat `wave -p rx`.
+4. Confirm the 510 Ω pull-up from 12 V to LIN is fitted (HARDWARE.md).
+5. Digital scope: separate project. Minimum 10 MHz, 2 channels. Build or
+   buy is still open. Buying is the practical route; a 2204A-class or
+   100 MHz USB scope fits the spec.
+
+**Still waiting on:** the EKA code, the bypass MOSFET parts, 510 Ω, TVS,
+buck converter, inline fuse and KKL 409.1 cable (§24).
+
+**Unverified, do not treat as checked:**
+
+- The Debug tab's page JavaScript has not been syntax-checked (no Node on
+  this PC), and the page has not been opened in a browser.
+- The on-chip ADC sample rate of the ESP32-C6 has not been checked against
+  the datasheet, and no part of this session relies on it.
+- The ~1 to 2 µs sampling resolution is an estimate, not a measurement.
+
+**Decisions**
+
+| # | Decision | Rationale |
+|---|----------|-----------|
+| 35 | **Waveform sampler reads, never drives, and takes the bus claim** | A sample during a capture, console command or OTA would mix readers on one line; the claim makes the refusal explicit |
+| 36 | **The waveform tool is a digital diagnostic, not an analog scope** | A logic threshold and a polling loop cannot show slope, ringing or overshoot. Those need a scope, and the tab says so |
+| 37 | **Console `wave` and the web Debug tab share one syntax and one route** | One command, two front ends. The web command box only sets the pin and window, then runs the same sample |
+| 38 | **Digital scope is a separate project, minimum 10 MHz, 2 channels** | The interface stays passive and read-only; the scope gets its own front end and display |
+| 39 | **Deploy to the board by OTA over home WiFi; COM14 is for recovery and console** | The board is reachable at a fixed home address, and a serial session resets the board unless DTR and RTS are held off |
+
 ## Sources
 
 - [NXP TJA1021 datasheet, rev. 9](https://www.nxp.com/docs/en/data-sheet/TJA1021.pdf)
