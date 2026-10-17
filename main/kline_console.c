@@ -8,6 +8,7 @@
  *   4. 'send'     - raw frames, once you know what you are doing.
  */
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <inttypes.h>
 
@@ -17,6 +18,7 @@
 
 #include "kline.h"
 #include "sniff.h"
+#include "waveform.h"
 
 /* Candidate 5-baud init addresses for the P38A.
  *
@@ -152,6 +154,99 @@ static int cmd_sniff(int argc, char **argv)
         printf("K-line busy (%s) - stop that first.\n", kline_owner());
         return 1;
     }
+    return 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* wave                                                                */
+/* ------------------------------------------------------------------ */
+
+#define WAVE_STRIP_COLS 72      /* one terminal line of pulse train */
+#define WAVE_LIST_MAX   32      /* edges printed individually */
+
+static struct {
+    struct arg_str *pin;
+    struct arg_int *ms;
+    struct arg_end *end;
+} wave_args;
+
+static int cmd_wave(int argc, char **argv)
+{
+    int nerrors = arg_parse(argc, argv, (void **)&wave_args);
+    if (nerrors != 0) {
+        arg_print_errors(stderr, wave_args.end, argv[0]);
+        return 1;
+    }
+
+    wave_pin_t pin = WAVE_PIN_RX;
+    if (wave_args.pin->count > 0) {
+        if (strcmp(wave_args.pin->sval[0], "rx") == 0) {
+            pin = WAVE_PIN_RX;
+        } else if (strcmp(wave_args.pin->sval[0], "tx") == 0) {
+            pin = WAVE_PIN_TX;
+        } else {
+            printf("pin must be rx or tx\n");
+            return 1;
+        }
+    }
+    uint32_t ms = (wave_args.ms->count > 0)
+                      ? (uint32_t)wave_args.ms->ival[0] : 50;
+    if (ms > WAVE_MAX_US / 1000) {
+        ms = WAVE_MAX_US / 1000;
+    }
+
+    wave_result_t r;
+    if (wave_sample(pin, ms * 1000, &r) != ESP_OK) {
+        printf("K-line busy (%s) - stop that first.\n", kline_owner());
+        return 1;
+    }
+
+    wave_edge_t *ed = malloc(WAVE_EDGES_MAX * sizeof(*ed));
+    if (!ed) {
+        printf("out of memory\n");
+        return 1;
+    }
+    size_t ne = wave_edges(ed, WAVE_EDGES_MAX);
+
+    printf("%s, %" PRIu32 " us window, level at start %s\n",
+           pin == WAVE_PIN_TX ? "TX" : "RX", r.window_us, r.level0 ? "high" : "low");
+    printf("edges %" PRIu32 "%s, high %" PRIu32 " us, low %" PRIu32 " us\n",
+           r.edges, r.truncated ? " (buffer full, window cut short)" : "",
+           r.high_us, r.low_us);
+    printf("shortest high %" PRIu32 " us, shortest low %" PRIu32 " us",
+           r.min_high_us, r.min_low_us);
+    if (r.est_baud) {
+        printf(", est. %" PRIu32 " baud", r.est_baud);
+    }
+    printf("\n\n");
+
+    /* One character per column: '-' high, '_' low, read from the edges. */
+    char strip[WAVE_STRIP_COLS + 1];
+    size_t ei = 0;
+    uint8_t lv = r.level0;
+    for (size_t c = 0; c < WAVE_STRIP_COLS; c++) {
+        uint32_t t = (uint32_t)((uint64_t)r.window_us * c / WAVE_STRIP_COLS);
+        while (ei < ne && ed[ei].t_us <= t) {
+            lv = ed[ei].level;
+            ei++;
+        }
+        strip[c] = lv ? '-' : '_';
+    }
+    strip[WAVE_STRIP_COLS] = '\0';
+    printf("  %s\n", strip);
+    printf("  0%*s%" PRIu32 " us\n", WAVE_STRIP_COLS - 4, "", r.window_us);
+    printf("  ('-' high, '_' low)\n");
+
+    if (ne > 0) {
+        printf("\n  edges, first %d:\n", ne < WAVE_LIST_MAX ? (int)ne : WAVE_LIST_MAX);
+        for (size_t i = 0; i < ne && i < WAVE_LIST_MAX; i++) {
+            printf("  %10" PRIu32 " us  -> %s\n", ed[i].t_us, ed[i].level ? "high" : "low");
+        }
+        if (ne > WAVE_LIST_MAX) {
+            printf("  ... %u more\n", (unsigned)(ne - WAVE_LIST_MAX));
+        }
+    }
+    free(ed);
     return 0;
 }
 
@@ -415,6 +510,18 @@ void kline_console_register(void)
         .argtable = &sniff_args,
     };
     ESP_ERROR_CHECK(esp_console_cmd_register(&sniff_cmd));
+
+    wave_args.pin = arg_str0("p", "pin", "<rx|tx>", "pin to sample (default rx)");
+    wave_args.ms  = arg_int0("t", "time", "<ms>", "window length, 1 to 200 (default 50)");
+    wave_args.end = arg_end(2);
+    const esp_console_cmd_t wave_cmd = {
+        .command  = "wave",
+        .help     = "Sample a K-line pin and print its pulse train (passive)",
+        .hint     = NULL,
+        .func     = &cmd_wave,
+        .argtable = &wave_args,
+    };
+    ESP_ERROR_CHECK(esp_console_cmd_register(&wave_cmd));
 
     slowinit_args.addr = arg_str1(NULL, NULL, "<hex>", "ECU address, e.g. 33");
     slowinit_args.end  = arg_end(2);

@@ -55,6 +55,7 @@ Both must be open before a single byte leaves the ESP32.
 
 | Document | Contents |
 |----------|----------|
+| [FSD_RRp38KLineInterface.md](FSD_RRp38KLineInterface.md) | Functional specification: requirements, safety gates, web routes, verification |
 | [docs/PLAN.md](docs/PLAN.md) | Phased roadmap with entry/exit criteria, and a risk register. **Start here.** |
 | [docs/SESSION-NOTES.md](docs/SESSION-NOTES.md) | What was investigated, every decision and its rationale, and what is still unverified |
 | [docs/INTERFACE-MODULES.md](docs/INTERFACE-MODULES.md) | Which transceiver to buy, comparison table, what to check on arrival |
@@ -131,7 +132,9 @@ The board runs its own WiFi access point, always:
 The **Status** tab shows the K-line build, armed state and pins, the
 network, and heap. The **Sniff** tab runs a passive capture and shows the
 frames live, split on silent gaps; it can download them as a `.txt`. The
-page is otherwise **read-only**: nothing on it can arm, init, send or
+**Debug** tab takes a short sample of the RX or TX pin and draws the pulse
+train, with the shortest pulses and an estimated baud rate. The page is
+otherwise **read-only**: nothing on it can arm, init, send or
 scan. Those stay on the USB console, and while a web capture runs the
 console refuses them (`K-line busy (web)`).
 
@@ -169,6 +172,7 @@ Connect to the C6's USB port (COM14; baud rate is ignored on USB). Prompt is `p3
 |---------|---------|
 | `status` | Pin mapping, TX gates |
 | `sniff [-t secs] [-g gap_ms]` | Passive capture. Always safe. Default 30s, 10ms split |
+| `wave [-p rx\|tx] [-t ms]` | Passive pin sample: pulse train as text, edge list, shortest pulses, estimated baud. Default rx, 50 ms |
 | `arm --yes` / `disarm` | Unlock / lock transmission |
 | `slowinit <hex>` | 5-baud init to one address, e.g. `slowinit 33` |
 | `fastinit` | KWP2000 wake-up pattern |

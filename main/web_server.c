@@ -4,7 +4,8 @@
  * Handlers adapted from RemoteStart/SlaveWallas (same chip, same IDF).
  * Deliberately read-only towards the K-line: there is no route that arms,
  * inits, sends or scans. Those stay on the USB console (decision 25). The
- * one K-line action here is starting and stopping a passive sniff.
+ * K-line actions here are starting and stopping a passive sniff, and taking
+ * a waveform sample, which only listens to a pin.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -27,6 +28,7 @@
 #include "net.h"
 #include "sniff.h"
 #include "version.h"
+#include "waveform.h"
 #include "web_server.h"
 
 static const char *TAG = "web";
@@ -140,12 +142,14 @@ static const char INDEX_HTML[] =
 "pre.log{font-family:Consolas,Menlo,monospace;font-size:.75rem;line-height:1.45;"
 "max-height:60vh;overflow:auto;white-space:pre;background:#0b1730;padding:10px;border-radius:5px}"
 "pre.log .t{color:#888}pre.log .g{color:#e9b400}"
+"#wc{display:block;width:100%;height:220px;background:#0b1730;border-radius:5px}"
 "</style></head><body>"
 "<div class='hdr'><h1>RR P38 K-line</h1>"
 "<span class='v'>" FIRMWARE_NAME " v" FIRMWARE_VERSION "</span></div>"
 "<div class='tabs'>"
 "<button class='tab on' onclick='show(\"status\",this)'>Status</button>"
 "<button class='tab' onclick='show(\"sniff\",this)'>Sniff</button>"
+"<button class='tab' onclick='show(\"debug\",this)'>Debug</button>"
 "<button class='tab' onclick='show(\"wifi\",this)'>WiFi</button>"
 "<button class='tab' onclick='show(\"ota\",this)'>OTA Update</button>"
 "</div>"
@@ -170,6 +174,22 @@ static const char INDEX_HTML[] =
 "<button class='btn s' onclick='sniffSave()'>Download</button>"
 "<div class='ts' id='ss'></div></div>"
 "<div class='card'><h3>Frames</h3><pre class='log' id='sl'></pre></div></div>"
+
+"<div id='debug' class='pane'>"
+"<div class='card'><h3>Signal waveform</h3>"
+"<p class='note'>Samples the pin level for a short window and draws every edge. Reads only: nothing is driven. "
+"A quiet bus is a flat high line; a module talking shows as a pulse train. Samples cannot run during a capture or a console command.</p>"
+"<div class='ctl'>"
+"<label>Pin<select id='wp'><option value='rx' selected>RX (bus)</option><option value='tx'>TX (to transceiver)</option></select></label>"
+"<label>Window (ms)<input id='ww' type='number' min='1' max='200' value='50'></label></div>"
+"<div class='ctl'><label>Command<input id='wcmd' type='text' value='wave -p rx -t 50'></label></div>"
+"<button class='btn' onclick='waveCmd()'>Run</button> "
+"<button class='btn s' onclick='waveSample()'>Sample</button> "
+"<button class='btn s' id='wsb' onclick='waveScan()'>Scan for activity</button>"
+"<p class='note'>Scan repeats a sample each second, for up to 60 tries, and stops at the first one with edges.</p>"
+"<div class='ts' id='ws'></div></div>"
+"<div class='card'><h3>Pulse train</h3><canvas id='wc'></canvas>"
+"<div class='grid' id='wst' style='margin-top:10px'></div></div></div>"
 
 "<div id='wifi' class='pane'>"
 "<div class='card'><h3>Home WiFi</h3>"
@@ -316,6 +336,47 @@ static const char INDEX_HTML[] =
 "function sniffSave(){var a=document.createElement('a'),d=new Date();"
 "a.href=URL.createObjectURL(new Blob([SL.join('\\n')+'\\n'],{type:'text/plain'}));"
 "a.download='kline-sniff-'+d.toISOString().slice(0,19).replace(/[:T]/g,'-')+'.txt';a.click();}"
+"var WS=false;"
+"function waveGet(){var p=document.getElementById('wp').value,m=document.getElementById('ww').value;"
+"return fetch('/api/wave?pin='+p+'&ms='+m).then(r=>r.ok?r.json():r.text().then(t=>{throw new Error(t);}));}"
+"function waveSample(){waveGet().then(waveDraw).catch(e=>{document.getElementById('ws').textContent='Sample failed: '+e.message;});}"
+"function wmsg(m){document.getElementById('ws').textContent=m;}"
+"function waveCmd(){var t=document.getElementById('wcmd').value.split(' ').filter(Boolean);"
+"if(t[0]!=='wave')return wmsg('Usage: wave [-p rx|tx] [-t ms]');"
+"for(var i=1;i<t.length;i++){"
+"if(t[i]==='-p'&&t[i+1]){var p=t[++i];if(p!=='rx'&&p!=='tx')return wmsg('pin must be rx or tx');document.getElementById('wp').value=p;}"
+"else if(t[i]==='-t'&&t[i+1]){document.getElementById('ww').value=t[++i];}"
+"else return wmsg('Unknown argument: '+t[i]);}"
+"waveSample();}"
+"function waveScan(){var b=document.getElementById('wsb'),n=0;"
+"function done(msg){WS=false;b.textContent='Scan for activity';if(msg)document.getElementById('ws').textContent=msg;}"
+"if(WS){WS=false;return;}WS=true;b.textContent='Stop';"
+"function step(){if(!WS)return done('');if(++n>60)return done('No activity in 60 samples.');"
+"waveGet().then(d=>{waveDraw(d);if(d.edges>0)return done('Activity after '+n+' sample(s): '+d.edges+' edges.');setTimeout(step,1000);})"
+".catch(e=>done('Sample failed: '+e.message));}"
+"step();}"
+"function wus(u){return u>=1000?(u/1000).toFixed(2)+' ms':u+' us';}"
+"function waveDraw(d){var c=document.getElementById('wc'),g=c.getContext('2d'),dp=window.devicePixelRatio||1,W=c.clientWidth,H=c.clientHeight;"
+"c.width=W*dp;c.height=H*dp;g.setTransform(dp,0,0,dp,0,0);"
+"var L=34,R=W-10,hy=26,ly=H-26,T=d.window_us,X=t=>L+(R-L)*t/T,Y=l=>l?hy:ly;"
+"g.fillStyle='#0b1730';g.fillRect(0,0,W,H);"
+"g.font='10px Arial';g.strokeStyle='#223';g.lineWidth=1;"
+"for(var i=0;i<=10;i++){var gx=Math.round(X(T*i/10))+.5;g.beginPath();g.moveTo(gx,0);g.lineTo(gx,H);g.stroke();"
+"g.fillStyle='#666';g.fillText(wus(Math.round(T*i/10)),gx+2,H-6);}"
+"g.fillStyle='#888';g.fillText('1',8,hy+4);g.fillText('0',8,ly+4);"
+"g.strokeStyle='#4caf50';g.lineWidth=1.5;g.beginPath();"
+"var px=X(0),py=Y(d.level0);g.moveTo(px,py);"
+"d.e.forEach(e=>{var x=X(e[0]);g.lineTo(x,py);py=Y(e[1]);g.lineTo(x,py);});"
+"g.lineTo(X(T),py);g.stroke();"
+"if(d.truncated){g.fillStyle='#e9b400';g.fillText('edge buffer full: window cut short',L+6,hy-8);}"
+"var sb=d.est_baud?'est. '+d.est_baud+' baud from shortest pulse':'no complete pulse';"
+"document.getElementById('ws').textContent=d.pin.toUpperCase()+', '+wus(d.window_us)+': '+d.edges+' edges, '+sb+'.';"
+"document.getElementById('wst').innerHTML="
+"row('Pin',d.pin.toUpperCase())+row('Level at start',d.level0?'high':'low')+"
+"row('Edges',d.edges+(d.truncated?' (truncated)':''),d.truncated?'amb':'')+"
+"row('High time',wus(d.high_us))+row('Low time',wus(d.low_us))+"
+"row('Shortest high',d.min_high_us?wus(d.min_high_us):'none')+row('Shortest low',d.min_low_us?wus(d.min_low_us):'none')+"
+"row('Est. baud',d.est_baud?String(d.est_baud):'none')+row('Window',wus(d.window_us));}"
 "setInterval(()=>{if(document.getElementById('sniff').classList.contains('on'))sniffPoll();},700);"
 "setInterval(()=>{if(document.getElementById('status').classList.contains('on'))stat();},2000);"
 "stat();"
@@ -683,6 +744,61 @@ static esp_err_t h_sniff_stop(httpd_req_t *req)
 {
     sniff_stop();
     return httpd_resp_sendstr(req, "OK");
+}
+
+/* GET /api/wave?pin=rx|tx&ms=50 - one sample of a pin's level: summary
+ * numbers and the edge list. Listens only. */
+static esp_err_t h_wave(httpd_req_t *req)
+{
+    char q[48], v[16];
+    wave_pin_t pin = WAVE_PIN_RX;
+    uint32_t ms = 50;
+    if (httpd_req_get_url_query_str(req, q, sizeof(q)) == ESP_OK) {
+        if (httpd_query_key_value(q, "pin", v, sizeof(v)) == ESP_OK && strcmp(v, "tx") == 0) {
+            pin = WAVE_PIN_TX;
+        }
+        if (httpd_query_key_value(q, "ms", v, sizeof(v)) == ESP_OK) {
+            ms = strtoul(v, NULL, 10);
+        }
+    }
+    ms = ms > WAVE_MAX_US / 1000 ? WAVE_MAX_US / 1000 : ms;
+
+    wave_result_t r;
+    if (wave_sample(pin, ms * 1000, &r) != ESP_OK) {
+        char msg[48];
+        snprintf(msg, sizeof(msg), "K-line busy (%s)", kline_owner());
+        httpd_resp_set_status(req, "409 Conflict");
+        return httpd_resp_sendstr(req, msg);
+    }
+
+    wave_edge_t *ed = malloc(WAVE_EDGES_MAX * sizeof(*ed));
+    size_t cap = 512 + WAVE_EDGES_MAX * 16;
+    char *buf = malloc(cap);
+    if (!ed || !buf) {
+        free(ed);
+        free(buf);
+        return httpd_resp_send_500(req);
+    }
+    size_t ne = wave_edges(ed, WAVE_EDGES_MAX);
+
+    size_t n = snprintf(buf, cap,
+        "{\"pin\":\"%s\",\"window_us\":%lu,\"level0\":%u,\"edges\":%lu,\"truncated\":%s,"
+        "\"high_us\":%lu,\"low_us\":%lu,\"min_high_us\":%lu,\"min_low_us\":%lu,"
+        "\"est_baud\":%lu,\"e\":[",
+        pin == WAVE_PIN_TX ? "tx" : "rx", (unsigned long)r.window_us, (unsigned)r.level0,
+        (unsigned long)r.edges, r.truncated ? "true" : "false", (unsigned long)r.high_us,
+        (unsigned long)r.low_us, (unsigned long)r.min_high_us, (unsigned long)r.min_low_us,
+        (unsigned long)r.est_baud);
+    for (size_t i = 0; i < ne; i++) {
+        n += snprintf(buf + n, cap - n, "%s[%lu,%u]", i ? "," : "",
+                      (unsigned long)ed[i].t_us, (unsigned)ed[i].level);
+    }
+    snprintf(buf + n, cap - n, "]}");
+    free(ed);
+    httpd_resp_set_type(req, "application/json");
+    esp_err_t err = httpd_resp_sendstr(req, buf);
+    free(buf);
+    return err;
 }
 
 /* POST /api/reboot */
@@ -1085,6 +1201,7 @@ esp_err_t web_server_start(void)
         { .uri = "/api/sniff",   .method = HTTP_GET,  .handler = h_sniff_get },
         { .uri = "/api/sniff/start", .method = HTTP_POST, .handler = h_sniff_start },
         { .uri = "/api/sniff/stop",  .method = HTTP_POST, .handler = h_sniff_stop  },
+        { .uri = "/api/wave",    .method = HTTP_GET,  .handler = h_wave      },
         { .uri = "/wifi-save",   .method = HTTP_POST, .handler = h_wifi_save },
         { .uri = "/ap-save",     .method = HTTP_POST, .handler = h_ap_save   },
         { .uri = "/api/reboot",  .method = HTTP_POST, .handler = h_reboot    },
