@@ -1111,6 +1111,34 @@ unresolved until the car test runs without it.
 | 45 | **The first breakout is the car-test board** | It passed the echo test on every session except one, and the one failure has not recurred. The second has failed and is not trusted |
 | 46 | **Run the bench echo test before each car session** | An intermittent fault is only caught if the test runs first; a passing echo is the only gate we have |
 
+## 29. Webasto Thermo Top V — possible K-line device, not verified — 2026-10-18
+
+Raised as a question: does a Webasto Thermo Top V heater use the K-line?
+Checked against two sources. Neither is manufacturer documentation.
+
+- **Name and bus.** [experimental-engineering.co.uk, post 4599](https://www.experimental-engineering.co.uk/?p=4599)
+  calls the heater's diagnostic interface the **W-Bus** and says it runs
+  over the K-line. A [UK kit seller](https://fnltd.co.uk/shop/diagnostic-kit-for-webasto-d3-d4-rrs-thermotop-v-vevo-p66.html)
+  sells a Thermo Test kit with a USB-to-OBD2 adapter for "K-line
+  communications".
+- **Wiring.** The blog gives OBD pin 16 to the heater's positive supply and
+  OBD pin 7 (K-line) to heater pin 2, "valid for all TT-V heaters". The
+  author tested it on their own unit only.
+- **Not stated anywhere checked:** baud rate, protocol standard (ISO 9141,
+  KWP2000 or other), init sequence. The W-Bus is not identified as ISO 9141,
+  so the GEMS init sequence in `kline.c` should not be assumed to apply.
+- **Vehicle list.** The kit's vehicles are Discovery 3, Discovery 4 and
+  Range Rover Sport, 2005 to 2013. The P38A is not on it.
+
+**Status:** a lead, not a fact. Not connected, and not part of the car
+test. Before wiring the heater to this interface, get the W-Bus protocol
+specification from Webasto service documentation or a verified source.
+
+**Safety:** the K-line is shared with the car's modules. `send` and
+`bbsend` transmit, so a test against the heater on the car's bus could
+disturb the P38 ECU. Keep the heater off this bus until its protocol is
+confirmed.
+
 ## Sources
 
 - [NXP TJA1021 datasheet, rev. 9](https://www.nxp.com/docs/en/data-sheet/TJA1021.pdf)
