@@ -176,6 +176,10 @@ static const char INDEX_HTML[] =
 "<div class='card'><h3>Frames</h3><pre class='log' id='sl'></pre></div></div>"
 
 "<div id='debug' class='pane'>"
+"<div class='card'><h3>Bus echo test</h3>"
+"<p class='note'>Sends one byte (55) on the K-line through the transceiver and checks that it comes back. Use it to test the wiring and transceiver. It transmits, so the car must be unplugged from the K-line. The page asks first.</p>"
+"<button class='btn' onclick='echoTest()'>Run echo test</button>"
+"<div class='ts' id='et'></div></div>"
 "<div class='card'><h3>Signal waveform</h3>"
 "<p class='note'>Samples the pin level for a short window and draws every edge. Reads only: nothing is driven. "
 "A quiet bus is a flat high line; a module talking shows as a pulse train. Samples cannot run during a capture or a console command.</p>"
@@ -355,6 +359,11 @@ static const char INDEX_HTML[] =
 "waveGet().then(d=>{waveDraw(d);if(d.edges>0)return done('Activity after '+n+' sample(s): '+d.edges+' edges.');setTimeout(step,1000);})"
 ".catch(e=>done('Sample failed: '+e.message));}"
 "step();}"
+"function echoTest(){if(!confirm('The car must be unplugged from the K-line. This sends one byte on the bus. Continue?'))return;"
+"var e=document.getElementById('et');e.textContent='Sending...';"
+"fetch('/api/echo-test',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'confirm=car-unplugged'})"
+".then(r=>r.text().then(t=>{e.textContent=(r.ok?'':'Refused: ')+t;}))"
+".catch(x=>{e.textContent='Failed: '+x.message;});}"
 "function wus(u){return u>=1000?(u/1000).toFixed(2)+' ms':u+' us';}"
 "function waveDraw(d){var c=document.getElementById('wc'),g=c.getContext('2d'),dp=window.devicePixelRatio||1,W=c.clientWidth,H=c.clientHeight;"
 "c.width=W*dp;c.height=H*dp;g.setTransform(dp,0,0,dp,0,0);"
@@ -801,6 +810,40 @@ static esp_err_t h_wave(httpd_req_t *req)
     return err;
 }
 
+/* POST /api/echo-test - one byte on the K-line with the echo check. It
+ * transmits, so the body must say the car is unplugged. The page asks first;
+ * this is the second check. */
+static esp_err_t h_echo_test(httpd_req_t *req)
+{
+    char body[48] = {0};
+    int len = req->content_len;
+    if (len <= 0 || len >= (int)sizeof(body) || httpd_req_recv(req, body, len) != len) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        return httpd_resp_sendstr(req, "send confirm=car-unplugged");
+    }
+    if (strcmp(body, "confirm=car-unplugged") != 0) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        return httpd_resp_sendstr(req, "confirmation missing");
+    }
+    if (!kline_claim("web echo")) {
+        char msg[64];
+        snprintf(msg, sizeof(msg), "K-line busy (%s)", kline_owner());
+        httpd_resp_set_status(req, "409 Conflict");
+        return httpd_resp_sendstr(req, msg);
+    }
+    esp_err_t err = kline_echo_once(0x55);
+    kline_unclaim();
+
+    char msg[96];
+    if (err == ESP_OK) {
+        snprintf(msg, sizeof(msg), "echo ok: sent 55, echo 55");
+    } else {
+        snprintf(msg, sizeof(msg), "echo failed: %s", esp_err_to_name(err));
+    }
+    httpd_resp_set_type(req, "text/plain");
+    return httpd_resp_sendstr(req, msg);
+}
+
 /* POST /api/reboot */
 static esp_err_t h_reboot(httpd_req_t *req)
 {
@@ -1202,6 +1245,7 @@ esp_err_t web_server_start(void)
         { .uri = "/api/sniff/start", .method = HTTP_POST, .handler = h_sniff_start },
         { .uri = "/api/sniff/stop",  .method = HTTP_POST, .handler = h_sniff_stop  },
         { .uri = "/api/wave",    .method = HTTP_GET,  .handler = h_wave      },
+        { .uri = "/api/echo-test", .method = HTTP_POST, .handler = h_echo_test },
         { .uri = "/wifi-save",   .method = HTTP_POST, .handler = h_wifi_save },
         { .uri = "/ap-save",     .method = HTTP_POST, .handler = h_ap_save   },
         { .uri = "/api/reboot",  .method = HTTP_POST, .handler = h_reboot    },
