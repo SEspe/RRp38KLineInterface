@@ -1398,6 +1398,11 @@ has to be stopped before the OTA upload and before any console arm.
 - The init method, the address and the keyword bytes.
 - Whether the ECU needs something other than ignition on to answer.
 - A logic analyser would settle the five-baud timing. We do not have one.
+- **Task: check continuity from socket pin 15 to the ECU.** Car off, battery
+  disconnected. Test between socket pin 15 and the petrol ECU's pins 9 and 10
+  (C506 / C106, LGR). The Nanocom GEMS table lists pin 15 as "L-GEMS, BeCM,
+  HVAC, ABS", but the wiring diagram marks the petrol ECU's L-line "Not used".
+  If pin 15 reaches the ECU, the L-line divider plan applies again.
 
 **Decisions**
 
