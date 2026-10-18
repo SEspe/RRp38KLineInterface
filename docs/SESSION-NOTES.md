@@ -1376,6 +1376,18 @@ and the status page shows the last PID 05 reply the board has seen (§32,
 - **Timing:** the StartCommunication went out in the same console write as
   the wake-up, so the gap was not the cause.
 
+**1 kHz RX logger, cold start:** a passive logger (`main/slowlog.c`) samples
+the RX pin once per millisecond and keeps each level change with its time.
+It was run through a cold start (ignition off, then on, Nanocom plugged in).
+First activity came 104.7 s after the log started. Before that the line was
+empty. Between 104.7 s and 110 s, there were sparse bursts of fast flips,
+1.3 to 2.1 s apart. From 110 s, the same bursts came every ~220 ms, matching
+the 10400 polling frames in the sniff (about 225 ms apart). The 1 kHz
+sampling aliases the 10400 bytes, so the bursts look like flips, not bits.
+No run of 200 ms bits was seen, and nothing decoded to `55`. The five-baud
+init was not on the K-line in this recording. An earlier estimate of a
+210 ms bit period came from these bursts, and it was wrong.
+
 **What the manuals and web say:** the GEMS system manual, the GEMS OBD
 manual, the Nanocom GEMS technical data, the 14CUX manual and the fuel
 injection overview have no init, baud rate, keyword or address. They confirm
