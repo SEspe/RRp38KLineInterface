@@ -30,6 +30,7 @@
 #include "kline.h"
 #include "net.h"
 #include "sniff.h"
+#include "slowlog.h"
 #include "version.h"
 #include "waveform.h"
 #include "web_server.h"
@@ -803,6 +804,62 @@ static esp_err_t h_sniff_start(httpd_req_t *req)
     return httpd_resp_sendstr(req, "OK");
 }
 
+/* POST /api/slowlog/start - 1 kHz RX log; passive, never claims the bus. */
+static esp_err_t h_slowlog_start(httpd_req_t *req)
+{
+    if (!slowlog_start()) {
+        httpd_resp_set_status(req, "409 Conflict");
+        return httpd_resp_sendstr(req, "already running");
+    }
+    return httpd_resp_sendstr(req, "OK");
+}
+
+/* POST /api/slowlog/stop */
+static esp_err_t h_slowlog_stop(httpd_req_t *req)
+{
+    slowlog_stop();
+    return httpd_resp_sendstr(req, "OK");
+}
+
+/* GET /api/slowlog?from=N - edges with index >= N, at most 512 per call.
+ * Each edge is [t_ms, level]; t_ms counts from the start of the log. */
+#define SLOWLOG_BATCH 512
+static esp_err_t h_slowlog_get(httpd_req_t *req)
+{
+    char q[48], v[16];
+    uint32_t from = 0;
+    if (httpd_req_get_url_query_str(req, q, sizeof(q)) == ESP_OK &&
+        httpd_query_key_value(q, "from", v, sizeof(v)) == ESP_OK) {
+        from = strtoul(v, NULL, 10);
+    }
+
+    slowlog_state_t st;
+    slowlog_state(&st);
+    slowlog_edge_t *e = malloc(SLOWLOG_BATCH * sizeof(*e));
+    size_t cap = 256 + SLOWLOG_BATCH * 16;
+    char *buf = malloc(cap);
+    if (!e || !buf) {
+        free(e);
+        free(buf);
+        return httpd_resp_send_500(req);
+    }
+    size_t n = slowlog_get(from, e, SLOWLOG_BATCH);
+    size_t o = snprintf(buf, cap,
+        "{\"running\":%s,\"full\":%s,\"count\":%lu,\"from\":%lu,\"e\":[",
+        st.running ? "true" : "false", st.full ? "true" : "false",
+        (unsigned long)st.count, (unsigned long)from);
+    for (size_t i = 0; i < n; i++) {
+        o += snprintf(buf + o, cap - o, "%s[%lu,%u]", i ? "," : "",
+                      (unsigned long)e[i].t_ms, (unsigned)e[i].level);
+    }
+    snprintf(buf + o, cap - o, "]}");
+    free(e);
+    httpd_resp_set_type(req, "application/json");
+    esp_err_t err = httpd_resp_sendstr(req, buf);
+    free(buf);
+    return err;
+}
+
 /* POST /api/sniff/stop - ends a capture, whether started here or on the
  * console. */
 static esp_err_t h_sniff_stop(httpd_req_t *req)
@@ -1411,6 +1468,9 @@ esp_err_t web_server_start(void)
         { .uri = "/api/sniff/start", .method = HTTP_POST, .handler = h_sniff_start },
         { .uri = "/api/sniff/stop",  .method = HTTP_POST, .handler = h_sniff_stop  },
         { .uri = "/api/wave",    .method = HTTP_GET,  .handler = h_wave      },
+        { .uri = "/api/slowlog/start", .method = HTTP_POST, .handler = h_slowlog_start },
+        { .uri = "/api/slowlog/stop",  .method = HTTP_POST, .handler = h_slowlog_stop  },
+        { .uri = "/api/slowlog",       .method = HTTP_GET,  .handler = h_slowlog_get   },
         { .uri = "/api/echo-test", .method = HTTP_POST, .handler = h_echo_test },
         { .uri = "/wifi-save",   .method = HTTP_POST, .handler = h_wifi_save },
         { .uri = "/ap-save",     .method = HTTP_POST, .handler = h_ap_save   },
