@@ -900,13 +900,16 @@ static esp_err_t h_echo_test(httpd_req_t *req)
     size_t n = 0;
     char *save = NULL;
     for (char *tok = strtok_r(v, " ,", &save); tok; tok = strtok_r(NULL, " ,", &save)) {
-        char *end = NULL;
-        unsigned long x = strtoul(tok, &end, 16);
-        if (*end != '\0' || x > 0xFF || n >= ECHO_MAX_BYTES) {
-            httpd_resp_set_status(req, "400 Bad Request");
-            return httpd_resp_sendstr(req, "give up to 16 hex bytes, 00..FF");
+        /* Each token is one or more byte pairs: "55", "00FF" or "00 FF". */
+        for (char *p = tok; *p; p += 2) {
+            if (!p[1] || !isxdigit((unsigned char)p[0]) || !isxdigit((unsigned char)p[1]) ||
+                n >= ECHO_MAX_BYTES) {
+                httpd_resp_set_status(req, "400 Bad Request");
+                return httpd_resp_sendstr(req, "give up to 16 hex bytes, 00..FF");
+            }
+            char pair[3] = { p[0], p[1], '\0' };
+            bytes[n++] = (uint8_t)strtoul(pair, NULL, 16);
         }
-        bytes[n++] = (uint8_t)x;
     }
     if (n == 0) {
         httpd_resp_set_status(req, "400 Bad Request");
