@@ -1442,8 +1442,9 @@ board side, and set the `LIN` jumper to MASTER. This is physical wiring. It is
 to be done with the car off and the battery disconnected, and in daylight.
 
 **To do, in order:**
-1. With the car off and the battery disconnected, fit the 560 Ω pull-up from 12 V
-   to the K-line on the board side, and set the `LIN` jumper to MASTER.
+1. With the car off and the battery disconnected, fit the 560 Ω pull-up from the
+   board's 12 V input (behind its inline fuse, not directly from the battery) to
+   the K-line on the board side, and set the `LIN` jumper to MASTER.
 2. Reconnect. With ignition on and the board idle (transmitter disarmed), measure
    the K-line against ground. Idle should be close to battery voltage. Record the
    reading.
