@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 330" font-family="Segoe UI, Arial, sans-serif">
+  <title>J1962 16-pin diagnostic socket, Range Rover P38A</title>
+  <rect x="10" y="10" width="400" height="250" rx="22" fill="#1b2433" stroke="#8aa0c0" stroke-width="2"/>
+  <text x="210" y="40" text-anchor="middle" fill="#e6edf7" font-size="15" font-weight="bold">J1962 16-pin diagnostic socket</text>
+  <text x="210" y="58" text-anchor="middle" fill="#9fb3cc" font-size="11">Range Rover P38A, under the dash, driver's side. Viewed from the pin side.</text>
+  <!-- top row: pins 1-8 -->
+  <g id="top">
+    <g transform="translate(60,95)"><circle r="15" fill="#2d3a4f" stroke="#8aa0c0"/><text y="5" text-anchor="middle" fill="#e6edf7" font-size="12">1</text></g>
+    <g transform="translate(100,95)"><circle r="15" fill="#2d3a4f" stroke="#8aa0c0"/><text y="5" text-anchor="middle" fill="#e6edf7" font-size="12">2</text></g>
+    <g transform="translate(140,95)"><circle r="15" fill="#2d3a4f" stroke="#8aa0c0"/><text y="5" text-anchor="middle" fill="#e6edf7" font-size="12">3</text></g>
+    <g transform="translate(180,95)"><circle r="15" fill="#111" stroke="#e6edf7" stroke-width="2"/><text y="5" text-anchor="middle" fill="#e6edf7" font-size="12">4</text></g>
+    <g transform="translate(220,95)"><circle r="15" fill="#111" stroke="#e6edf7" stroke-width="2"/><text y="5" text-anchor="middle" fill="#e6edf7" font-size="12">5</text></g>
+    <g transform="translate(260,95)"><circle r="15" fill="#2d3a4f" stroke="#8aa0c0"/><text y="5" text-anchor="middle" fill="#e6edf7" font-size="12">6</text></g>
+    <g transform="translate(300,95)"><circle r="15" fill="#e8465f" stroke="#fff" stroke-width="2"/><text y="5" text-anchor="middle" fill="#fff" font-size="12" font-weight="bold">7</text></g>
+    <g transform="translate(340,95)"><circle r="15" fill="#2d3a4f" stroke="#8aa0c0"/><text y="5" text-anchor="middle" fill="#e6edf7" font-size="12">8</text></g>
+  </g>
+  <!-- bottom row: pins 9-16 -->
+  <g id="bottom">
+    <g transform="translate(60,165)"><circle r="15" fill="#2d3a4f" stroke="#8aa0c0"/><text y="5" text-anchor="middle" fill="#e6edf7" font-size="12">9</text></g>
+    <g transform="translate(100,165)"><circle r="15" fill="#2d3a4f" stroke="#8aa0c0"/><text y="5" text-anchor="middle" fill="#e6edf7" font-size="12">10</text></g>
+    <g transform="translate(140,165)"><circle r="15" fill="#2d3a4f" stroke="#8aa0c0"/><text y="5" text-anchor="middle" fill="#e6edf7" font-size="12">11</text></g>
+    <g transform="translate(180,165)"><circle r="15" fill="#2d3a4f" stroke="#8aa0c0"/><text y="5" text-anchor="middle" fill="#e6edf7" font-size="12">12</text></g>
+    <g transform="translate(220,165)"><circle r="15" fill="#2d3a4f" stroke="#8aa0c0"/><text y="5" text-anchor="middle" fill="#e6edf7" font-size="12">13</text></g>
+    <g transform="translate(260,165)"><circle r="15" fill="#2d3a4f" stroke="#8aa0c0"/><text y="5" text-anchor="middle" fill="#e6edf7" font-size="12">14</text></g>
+    <g transform="translate(300,165)"><circle r="15" fill="#3fb950" stroke="#fff" stroke-width="2"/><text y="5" text-anchor="middle" fill="#fff" font-size="12" font-weight="bold">15</text></g>
+    <g transform="translate(340,165)"><circle r="15" fill="#f0a030" stroke="#fff" stroke-width="2"/><text y="5" text-anchor="middle" fill="#111" font-size="12" font-weight="bold">16</text></g>
+  </g>
+  <!-- labels -->
+  <g font-size="11" fill="#e6edf7" text-anchor="middle">
+    <text x="180" y="124" fill="#9fb3cc">GND</text>
+    <text x="220" y="124" fill="#9fb3cc">GND</text>
+    <text x="300" y="124" font-weight="bold" fill="#ffb3bd">K-line</text>
+    <text x="300" y="196" font-weight="bold" fill="#9ff0b0">L-line</text>
+    <text x="340" y="196" font-weight="bold" fill="#ffd28a">+12 V</text>
+  </g>
+  <!-- legend -->
+  <g font-size="11" fill="#e6edf7">
+    <circle cx="30" cy="285" r="6" fill="#e8465f"/><text x="42" y="289">7  K-line (main diagnostic line, used here)</text>
+    <circle cx="30" cy="305" r="6" fill="#111" stroke="#e6edf7"/><text x="42" y="309">4, 5  ground (black wires)</text>
+    <circle cx="230" cy="285" r="6" fill="#f0a030"/><text x="242" y="289">16  battery +12 V (permanent)</text>
+    <circle cx="230" cy="305" r="6" fill="#3fb950"/><text x="242" y="309">15  L-line (optional, not wired by default)</text>
+  </g>
+  <text x="210" y="326" text-anchor="middle" font-size="10" fill="#9fb3cc">Pins 1-3, 6, 8-14: not recorded in our notes. Check before use.</text>
+</svg>

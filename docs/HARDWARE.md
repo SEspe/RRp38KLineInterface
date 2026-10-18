@@ -21,6 +21,11 @@ An SN65HVD230 or any other CAN transceiver has nothing to connect to here.
 | 4,5 | Black             | Ground |
 | 16  | —                 | Battery +12V (permanent) |
 
+![J1962 socket, pin layout and the pins used here](images/j1962-p38-pinout.svg)
+
+Pins 1–3, 6 and 8–14 are not recorded in these notes. Only the pins above
+are used by this interface.
+
 Verify against a P38 wiring diagram for your exact car before cutting
 anything. EAS diagnostic lines route through the LH footwell kick panel
 connectors, which are notorious for corroding — if EAS is the only module
