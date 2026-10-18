@@ -16,7 +16,7 @@
 
 #define WAVE_EDGES_MAX   2048      /* edges kept per sample; more sets `truncated` */
 #define WAVE_MIN_US      1000      /* shortest window */
-#define WAVE_MAX_US      200000    /* longest window: 200 ms */
+#define WAVE_MAX_US      3000000   /* longest window: 3 s (5-baud init runs over 2 s) */
 
 typedef enum {
     WAVE_PIN_RX,                   /* the bus side, after the transceiver */

@@ -201,7 +201,7 @@ static const char INDEX_HTML[] =
 "A quiet bus is a flat high line; a module talking shows as a pulse train. Samples cannot run during a capture or a console command.</p>"
 "<div class='ctl'>"
 "<label>Pin<select id='wp'><option value='rx' selected>RX (bus)</option><option value='tx'>TX (to transceiver)</option></select></label>"
-"<label>Window (ms)<input id='ww' type='number' min='1' max='200' value='50'></label></div>"
+"<label>Window (ms)<input id='ww' type='number' min='1' max='3000' value='50'></label></div>"
 "<div class='ctl'><label>Command<input id='wcmd' type='text' value='wave -p rx -t 50'></label></div>"
 "<button class='btn' onclick='waveCmd()'>Run</button> "
 "<button class='btn s' onclick='waveSample()'>Sample</button> "
