@@ -1180,10 +1180,13 @@ taken up again, it needs its own protocol capture and its own design note.
 **Car-side status:**
 - **EKA code:** available. It is kept out of the repo and these notes.
 - **Power:** 12 V from the car's diagnostic socket (pin 16) through an
-  inline fuse to the transceiver's `VCC`. The ESP32 runs from the PC's USB.
+  inline fuse to the transceiver's `VCC`. The ESP32 runs from a powerbank,
+  not the PC's USB (corrected in §32; the earlier "from the PC's USB" was
+  wrong).
 - **Ground:** the car's ground (socket pin 5) goes to the board's `GND`.
   Whether the PC's ground should be isolated from it is still open; use a
-  battery laptop, or an isolator, if one is available.
+  battery laptop, or an isolator, if one is available. (With the powerbank
+  powering the board, the PC is not on the board's supply; see §32.)
 - **Not yet confirmed:** ignition state, which path the PC uses to reach the
   board, and whether the fuse is in place. These were asked and not answered.
 
@@ -1322,8 +1325,15 @@ copied into the repo.
 **Still open** (from section 30, unchanged unless noted):
 - Ignition-on was needed. The session 30 question "ignition state" is now
   answered: the bus needs ignition on to carry traffic.
-- The fuse and the PC's ground isolation were not recorded this session,
-  and must be before the next car session.
+- **Power, corrected:** the ESP32 is powered by a powerbank, not from the
+  PC over USB. The PC's ground is therefore not on the board's supply. Still
+  to confirm: how the PC reaches the board (WiFi or USB data), and whether
+  the powerbank is charging from anything during the session.
+- **Pin 16 is live with ignition off** (measured on the car, voltage not
+  yet recorded). So the quiet bus with ignition off is a real result: the
+  transceiver had 12 V.
+- **Fuse:** the inline fuse on the 12 V lead is not yet fitted. The car's
+  own fuse is not checked here.
 - The bench current draw at 12 V has never been recorded.
 - LAN-only operation: options A, B and C, not built.
 
