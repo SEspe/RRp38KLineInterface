@@ -1210,6 +1210,68 @@ taken up again, it needs its own protocol capture and its own design note.
   earlier session are unchanged; nothing has been built.
 - The Thermo Top V is dropped (section 29).
 
+## 31. Web echo test, waveform capture and per-byte logging — 2026-10-18
+
+**The web now transmits, on one request, with a confirmation.** This
+reverses the earlier rule that the web only listens. It was a deliberate
+choice, made so the bench wiring can be tested from the Debug tab. The rule
+that replaces it: the web can send only the echo test, only with the exact
+confirmation `confirm=car-unplugged`, and only when the bus is free.
+
+**What was added, in order:**
+
+1. **Per-byte echo log** (`90a8b82`). Each byte logs whether its echo came
+   back and after how long. On the bench, every echo arrived about 10.6 ms
+   after the read started.
+2. **`txlow` and `bbsend` committed** (`965e636`), bench-only, armed-only.
+3. **Web echo test** (`38ccf37`, then `6e8245b`, `4724011`, `77c7ce1`):
+   - `POST /api/echo-test`, body `confirm=car-unplugged&hex=...`. The
+     `hex` field takes up to 16 bytes, with or without spaces (`55 FF`,
+     `00FF00FF`). The exact confirmation is required on the server, and the
+     page asks before it sends.
+   - The bytes go out as one write with normal K-line spacing. The
+     transmitter is armed only for that write and put back afterwards.
+   - RX is sampled over a 200 ms window in a background task while the
+     bytes go out. The capture is drawn in the Pulse train and decoded at
+     10400 baud (start bit, eight data bits LSB first, stop bit), with each
+     byte's start time listed.
+   - **Clear** empties the status, the decoded list and the Pulse train.
+4. **`wave_capture()`** (`6e8245b`): the sampler without the bus claim, for
+   the echo test, which already holds it. `wave_sample()` keeps its claim.
+
+**Validated on the bench, car unplugged, first breakout:**
+- `55 FF 00 A5 5A` echoed on every byte. The RX capture shows the frames at
+  about 96 µs per bit (10400 baud). Decoding the capture recovers the five
+  bytes in order.
+- `00 FF 00 FF` and `00FF00FF` both echo on every byte.
+- `ZZ` and `0FF` are refused with 400. A request without the confirmation
+  is refused with 400.
+
+**Not tested:** the page's JavaScript was not run in a browser here. The
+decode and the byte parsing were checked against captured data and the
+board's responses, not on screen. The Pulse train was checked from a
+screenshot only.
+
+**Still open:**
+- The car has not been connected. The echo test is a bench check, and the
+  car test starts with a passive sniff (section 30).
+- The bench current draw at 12 V has never been recorded.
+- LAN-only operation: options A, B and C are unchanged, and nothing has been
+  built.
+- The W-Bus question (section 29): the Thermo Top V is dropped, so this is
+  parked.
+- A zoom control on the Pulse train, for seeing one byte's edges up close,
+  has been asked about but not built.
+- `main/kline.c` has your W4 comment, which is not committed and not part of
+  this push.
+
+**Decisions**
+
+| # | Decision | Rationale |
+|---|----------|-----------|
+| 47 | **The web may transmit, but only the echo test, and only with the exact confirmation** | The bench wiring is easiest to check from the Debug tab. The request must carry the confirmation text, and the page asks first. Nothing else transmits from the web |
+| 48 | **The echo test samples RX while it transmits, under its own claim** | A transmit and a capture on the same claim show the frames on the wire, which the echo alone cannot. The sampler reads a GPIO input and never drives a pin |
+
 ## Sources
 
 - [NXP TJA1021 datasheet, rev. 9](https://www.nxp.com/docs/en/data-sheet/TJA1021.pdf)
