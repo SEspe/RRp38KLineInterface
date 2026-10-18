@@ -364,7 +364,11 @@ esp_err_t kline_write(const uint8_t *buf, size_t len)
         /* Half-duplex: our own byte comes straight back on RX. Consume it,
          * and use it as a free wiring self-test. */
         uint8_t echo = 0;
+        int64_t t0 = esp_timer_get_time();
         int r = uart_read_bytes(KL_PORT, &echo, 1, pdMS_TO_TICKS(200));
+        ESP_LOGI(TAG, "byte %u sent 0x%02X: echo %s after %lld us, got 0x%02X",
+                 (unsigned)i, buf[i], (r == 1) ? "in" : "missing",
+                 (long long)(esp_timer_get_time() - t0), (r == 1) ? echo : 0);
         if (r != 1) {
             ESP_LOGE(TAG, "no echo for byte %u (0x%02X) - check wiring / Vbatt",
                      (unsigned)i, buf[i]);
