@@ -1422,6 +1422,53 @@ has to be stopped before the OTA upload and before any console arm.
 |---|----------|-----------|
 | 50 | **Stop guessing init targets; the unit shows coolant from the Nanocom's own traffic** | Each target is a transmit to the car. None of the eight five-baud addresses or the three fast-init targets got a reply. The passive path already gives coolant whenever a tester polls the ECU, and nothing is sent. The init can be taken up again with a logic analyser or an init reference |
 
+## 34. Direct request not answered; pull-up and master to fix first — to-do
+
+**The unit sends, but the ECU ignores the request.** With the transmitter armed
+on the USB console (car connected, Nanocom out, ignition on), the request
+`03 22 04 BF E8`, the exact bytes the Nanocom sent, got every byte echoed back
+and no reply within 500 ms. The Nanocom gets replies from the same ECU, so the
+Nanocom must set up something first. The echo shows the bytes reached the line.
+It does not show that the ECU accepted them.
+
+**Working theory: the K-line has no proper pull-up when the unit transmits.**
+The notes from section 30 removed the board's 560 Ω pull-up, on the plan that
+the car's pull-up would be the only one on the line. The team has since checked
+that the unit must be master on the line, and that it needs its own pull-up.
+This is not yet confirmed by a voltage reading.
+
+**Decision: use the same 560 Ω pull-up.** Fit it from 12 V to the K-line on the
+board side, and set the `LIN` jumper to MASTER. This is physical wiring. It is
+to be done with the car off and the battery disconnected, and in daylight.
+
+**To do, in order:**
+1. With the car off and the battery disconnected, fit the 560 Ω pull-up from 12 V
+   to the K-line on the board side, and set the `LIN` jumper to MASTER.
+2. Reconnect. With ignition on and the board idle (transmitter disarmed), measure
+   the K-line against ground. Idle should be close to battery voltage. Record the
+   reading.
+3. If the idle voltage is near battery voltage, connect the PC over USB (COM14),
+   confirm the console status, and stop the boot capture so the bus is free.
+4. With the Nanocom out and ignition on, run one session: `arm --yes`,
+   `send 03 22 04 BF E8`, `disarm`. Record whether the ECU replies.
+5. If it still does not reply, capture our own frame on the bus with the wave
+   sampler during the send (same bytes), to confirm the levels and bit timing.
+6. Continuity check, car off: socket pin 15 to the petrol ECU's pins 9 and 10
+   (C506 / C106, LGR). This is still open from §33.
+
+**Also open:**
+- The 1 kHz logger (`fc5b207`, §33) and the continuity check both help decide
+  whether the Nanocom needs an init we have not seen.
+- The boot capture stops on each reboot and blocks `arm`, so stop it over WiFi
+  before a console arm.
+- Opening COM14 restarts the board.
+
+**Decisions**
+
+| # | Decision | Rationale |
+|---|----------|-----------|
+| 51 | **Fit the 560 Ω pull-up and set MASTER before any further car transmit test** | The ECU may be ignoring frames because the line lacks a proper pull-up when the unit transmits. The fix is measurable: idle voltage near battery voltage. No further transmit until that is recorded |
+
 ## Sources
 
 - [NXP TJA1021 datasheet, rev. 9](https://www.nxp.com/docs/en/data-sheet/TJA1021.pdf)
