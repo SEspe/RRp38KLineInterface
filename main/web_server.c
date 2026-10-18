@@ -7,6 +7,7 @@
  * K-line actions here are starting and stopping a passive sniff, and taking
  * a waveform sample, which only listens to a pin.
  */
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -23,6 +24,8 @@
 #include "esp_system.h"
 #include "esp_timer.h"
 #include "esp_wifi.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #include "kline.h"
 #include "net.h"
@@ -177,7 +180,8 @@ static const char INDEX_HTML[] =
 
 "<div id='debug' class='pane'>"
 "<div class='card'><h3>Bus echo test</h3>"
-"<p class='note'>Sends one byte (55) on the K-line through the transceiver and checks that it comes back. Use it to test the wiring and transceiver. It transmits, so the car must be unplugged from the K-line. The page asks first.</p>"
+"<p class='note'>Sends the bytes on the K-line through the transceiver and checks that each one comes back, while sampling RX (the waveform is drawn below). It transmits, so the car must be unplugged from the K-line. The page asks first.</p>"
+"<div class='ctl'><label>Bytes (hex, up to 16)<input id='eth' type='text' value='55'></label></div>"
 "<button class='btn' onclick='echoTest()'>Run echo test</button>"
 "<div class='ts' id='et'></div></div>"
 "<div class='card'><h3>Signal waveform</h3>"
@@ -359,10 +363,13 @@ static const char INDEX_HTML[] =
 "waveGet().then(d=>{waveDraw(d);if(d.edges>0)return done('Activity after '+n+' sample(s): '+d.edges+' edges.');setTimeout(step,1000);})"
 ".catch(e=>done('Sample failed: '+e.message));}"
 "step();}"
-"function echoTest(){if(!confirm('The car must be unplugged from the K-line. This sends one byte on the bus. Continue?'))return;"
+"function echoTest(){var h=document.getElementById('eth').value||'55';"
+"if(!confirm('The car must be unplugged from the K-line. This sends '+h+' on the bus. Continue?'))return;"
 "var e=document.getElementById('et');e.textContent='Sending...';"
-"fetch('/api/echo-test',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'confirm=car-unplugged'})"
-".then(r=>r.text().then(t=>{e.textContent=(r.ok?'':'Refused: ')+t;}))"
+"fetch('/api/echo-test',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'confirm=car-unplugged&hex='+encodeURIComponent(h)})"
+".then(r=>r.text().then(t=>{if(!r.ok){e.textContent='Refused: '+t;return;}"
+"var d=JSON.parse(t);e.textContent='Echo '+d.echo+': sent '+d.sent+(d.echo==='ok'?'':' ('+d.err+')');"
+"if(d.wave){waveDraw(d.wave);}}))"
 ".catch(x=>{e.textContent='Failed: '+x.message;});}"
 "function wus(u){return u>=1000?(u/1000).toFixed(2)+' ms':u+' us';}"
 "function waveDraw(d){var c=document.getElementById('wc'),g=c.getContext('2d'),dp=window.devicePixelRatio||1,W=c.clientWidth,H=c.clientHeight;"
@@ -755,6 +762,26 @@ static esp_err_t h_sniff_stop(httpd_req_t *req)
     return httpd_resp_sendstr(req, "OK");
 }
 
+/* One sample as a JSON object: summary numbers and the edge list. Returns the
+ * length written. */
+static size_t wave_json(char *buf, size_t cap, const char *pin, const wave_result_t *r,
+                        const wave_edge_t *ed, size_t ne)
+{
+    size_t n = snprintf(buf, cap,
+        "{\"pin\":\"%s\",\"window_us\":%lu,\"level0\":%u,\"edges\":%lu,\"truncated\":%s,"
+        "\"high_us\":%lu,\"low_us\":%lu,\"min_high_us\":%lu,\"min_low_us\":%lu,"
+        "\"est_baud\":%lu,\"e\":[",
+        pin, (unsigned long)r->window_us, (unsigned)r->level0,
+        (unsigned long)r->edges, r->truncated ? "true" : "false", (unsigned long)r->high_us,
+        (unsigned long)r->low_us, (unsigned long)r->min_high_us, (unsigned long)r->min_low_us,
+        (unsigned long)r->est_baud);
+    for (size_t i = 0; i < ne; i++) {
+        n += snprintf(buf + n, cap - n, "%s[%lu,%u]", i ? "," : "",
+                      (unsigned long)ed[i].t_us, (unsigned)ed[i].level);
+    }
+    return n + snprintf(buf + n, cap - n, "]}");
+}
+
 /* GET /api/wave?pin=rx|tx&ms=50 - one sample of a pin's level: summary
  * numbers and the edge list. Listens only. */
 static esp_err_t h_wave(httpd_req_t *req)
@@ -789,20 +816,7 @@ static esp_err_t h_wave(httpd_req_t *req)
         return httpd_resp_send_500(req);
     }
     size_t ne = wave_edges(ed, WAVE_EDGES_MAX);
-
-    size_t n = snprintf(buf, cap,
-        "{\"pin\":\"%s\",\"window_us\":%lu,\"level0\":%u,\"edges\":%lu,\"truncated\":%s,"
-        "\"high_us\":%lu,\"low_us\":%lu,\"min_high_us\":%lu,\"min_low_us\":%lu,"
-        "\"est_baud\":%lu,\"e\":[",
-        pin == WAVE_PIN_TX ? "tx" : "rx", (unsigned long)r.window_us, (unsigned)r.level0,
-        (unsigned long)r.edges, r.truncated ? "true" : "false", (unsigned long)r.high_us,
-        (unsigned long)r.low_us, (unsigned long)r.min_high_us, (unsigned long)r.min_low_us,
-        (unsigned long)r.est_baud);
-    for (size_t i = 0; i < ne; i++) {
-        n += snprintf(buf + n, cap - n, "%s[%lu,%u]", i ? "," : "",
-                      (unsigned long)ed[i].t_us, (unsigned)ed[i].level);
-    }
-    snprintf(buf + n, cap - n, "]}");
+    wave_json(buf, cap, pin == WAVE_PIN_TX ? "tx" : "rx", &r, ed, ne);
     free(ed);
     httpd_resp_set_type(req, "application/json");
     esp_err_t err = httpd_resp_sendstr(req, buf);
@@ -810,38 +824,138 @@ static esp_err_t h_wave(httpd_req_t *req)
     return err;
 }
 
-/* POST /api/echo-test - one byte on the K-line with the echo check. It
- * transmits, so the body must say the car is unplugged. The page asks first;
- * this is the second check. */
+#define ECHO_MAX_BYTES   16
+#define ECHO_WINDOW_US   200000    /* RX sample around the send */
+
+/* Form values arrive percent-encoded ('+' or %20 for a space). The query
+ * helper does not decode them, so do it here, in place. */
+static void form_decode(char *s)
+{
+    char *d = s;
+    while (*s) {
+        if (*s == '+') {
+            *d++ = ' ';
+            s++;
+        } else if (s[0] == '%' && isxdigit((unsigned char)s[1]) && isxdigit((unsigned char)s[2])) {
+            char h[3] = { s[1], s[2], '\0' };
+            *d++ = (char)strtol(h, NULL, 16);
+            s += 3;
+        } else {
+            *d++ = *s++;
+        }
+    }
+    *d = '\0';
+}
+
+typedef struct {
+    wave_result_t result;
+    TaskHandle_t  waiter;
+} echo_capture_t;
+
+/* Samples RX in the background while the caller transmits. */
+static void echo_capture_task(void *arg)
+{
+    echo_capture_t *c = (echo_capture_t *)arg;
+    wave_capture(WAVE_PIN_RX, ECHO_WINDOW_US, &c->result);
+    xTaskNotifyGive(c->waiter);
+    vTaskDelete(NULL);
+}
+
+/* POST /api/echo-test, body: confirm=car-unplugged&hex=55 FF ...
+ * Sends the bytes on the K-line with the echo check and samples RX over the
+ * same window. It transmits, so the car must be unplugged. The page asks
+ * first; the exact confirmation is required here too. */
 static esp_err_t h_echo_test(httpd_req_t *req)
 {
-    char body[48] = {0};
+    char body[320] = {0};
     int len = req->content_len;
     if (len <= 0 || len >= (int)sizeof(body) || httpd_req_recv(req, body, len) != len) {
         httpd_resp_set_status(req, "400 Bad Request");
-        return httpd_resp_sendstr(req, "send confirm=car-unplugged");
+        return httpd_resp_sendstr(req, "send confirm=car-unplugged&hex=55");
     }
-    if (strcmp(body, "confirm=car-unplugged") != 0) {
+    char v[256];
+    if (httpd_query_key_value(body, "confirm", v, sizeof(v)) != ESP_OK ||
+        strcmp(v, "car-unplugged") != 0) {
         httpd_resp_set_status(req, "400 Bad Request");
         return httpd_resp_sendstr(req, "confirmation missing");
     }
+    if (httpd_query_key_value(body, "hex", v, sizeof(v)) != ESP_OK) {
+        strlcpy(v, "55", sizeof(v));
+    } else {
+        form_decode(v);
+    }
+
+    uint8_t bytes[ECHO_MAX_BYTES];
+    size_t n = 0;
+    char *save = NULL;
+    for (char *tok = strtok_r(v, " ,", &save); tok; tok = strtok_r(NULL, " ,", &save)) {
+        char *end = NULL;
+        unsigned long x = strtoul(tok, &end, 16);
+        if (*end != '\0' || x > 0xFF || n >= ECHO_MAX_BYTES) {
+            httpd_resp_set_status(req, "400 Bad Request");
+            return httpd_resp_sendstr(req, "give up to 16 hex bytes, 00..FF");
+        }
+        bytes[n++] = (uint8_t)x;
+    }
+    if (n == 0) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        return httpd_resp_sendstr(req, "no bytes given");
+    }
+
     if (!kline_claim("web echo")) {
         char msg[64];
         snprintf(msg, sizeof(msg), "K-line busy (%s)", kline_owner());
         httpd_resp_set_status(req, "409 Conflict");
         return httpd_resp_sendstr(req, msg);
     }
-    esp_err_t err = kline_echo_once(0x55);
+    echo_capture_t *cap = calloc(1, sizeof(*cap));
+    if (!cap) {
+        kline_unclaim();
+        return httpd_resp_send_500(req);
+    }
+    cap->waiter = xTaskGetCurrentTaskHandle();
+    if (xTaskCreate(echo_capture_task, "echo_wave", 4096, cap, 5, NULL) != pdPASS) {
+        free(cap);
+        kline_unclaim();
+        return httpd_resp_send_500(req);
+    }
+    vTaskDelay(pdMS_TO_TICKS(5));    /* let the sample start before the send */
+    esp_err_t err = kline_echo(bytes, n);
+    bool captured = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(1000)) > 0;
     kline_unclaim();
 
-    char msg[96];
-    if (err == ESP_OK) {
-        snprintf(msg, sizeof(msg), "echo ok: sent 55, echo 55");
-    } else {
-        snprintf(msg, sizeof(msg), "echo failed: %s", esp_err_to_name(err));
+    char sent[ECHO_MAX_BYTES * 3 + 1] = "";
+    for (size_t i = 0; i < n; i++) {
+        char t[4];
+        snprintf(t, sizeof(t), i ? " %02X" : "%02X", bytes[i]);
+        strlcat(sent, t, sizeof(sent));
     }
-    httpd_resp_set_type(req, "text/plain");
-    return httpd_resp_sendstr(req, msg);
+
+    size_t cap_json = 512 + WAVE_EDGES_MAX * 16;
+    wave_edge_t *ed = malloc(WAVE_EDGES_MAX * sizeof(*ed));
+    char *buf = malloc(cap_json);
+    if (!ed || !buf) {
+        free(ed);
+        free(buf);
+        free(cap);
+        return httpd_resp_send_500(req);
+    }
+    size_t out = snprintf(buf, cap_json,
+        "{\"echo\":\"%s\",\"err\":\"%s\",\"sent\":\"%s\",\"wave\":",
+        err == ESP_OK ? "ok" : "fail", esp_err_to_name(err), sent);
+    if (captured) {
+        size_t ne = wave_edges(ed, WAVE_EDGES_MAX);
+        out += wave_json(buf + out, cap_json - out, "rx", &cap->result, ed, ne);
+    } else {
+        out += snprintf(buf + out, cap_json - out, "null");
+    }
+    snprintf(buf + out, cap_json - out, "}");
+    free(ed);
+    free(cap);
+    httpd_resp_set_type(req, "application/json");
+    esp_err_t r = httpd_resp_sendstr(req, buf);
+    free(buf);
+    return r;
 }
 
 /* POST /api/reboot */

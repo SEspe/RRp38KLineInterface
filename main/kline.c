@@ -460,13 +460,14 @@ esp_err_t kline_bitbang_byte(uint8_t byte, uint8_t *echo)
 #endif
 }
 
-/* One byte on the K-line with the echo check, for the web echo test. The
+/* Bytes on the K-line with the echo check, for the web echo test. The
  * transmitter is armed only for this write and put back afterwards, so the
  * console arm state is left as it was. */
-esp_err_t kline_echo_once(uint8_t byte)
+esp_err_t kline_echo(const uint8_t *buf, size_t len)
 {
 #if !CONFIG_RRP38_ALLOW_TX
-    (void)byte;
+    (void)buf;
+    (void)len;
     return ESP_ERR_NOT_SUPPORTED;
 #else
     if (!s_started) {
@@ -474,7 +475,7 @@ esp_err_t kline_echo_once(uint8_t byte)
     }
     bool was_armed = s_tx_armed;
     kline_set_tx_armed(true);
-    esp_err_t err = kline_write(&byte, 1);
+    esp_err_t err = kline_write(buf, len);
     kline_set_tx_armed(was_armed);
     return err;
 #endif

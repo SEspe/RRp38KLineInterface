@@ -79,9 +79,9 @@ esp_err_t kline_write(const uint8_t *buf, size_t len);
  * the transmitter armed. Not for use with a car connected. */
 esp_err_t kline_pulse_tx(uint32_t count, uint32_t low_ms, uint32_t high_ms);
 
-/* One byte with the echo check. Arms only for this write. Used by the web
- * echo test; the caller must hold the bus claim. */
-esp_err_t kline_echo_once(uint8_t byte);
+/* Bytes with the echo check. Arms only for this write. Used by the web echo
+ * test; the caller must hold the bus claim. */
+esp_err_t kline_echo(const uint8_t *buf, size_t len);
 
 /* Bench test: send one byte by bit-banging GPIO, then read its echo. */
 esp_err_t kline_bitbang_byte(uint8_t byte, uint8_t *echo);

@@ -116,11 +116,10 @@ static void capture(int gpio, uint32_t window_us, wave_result_t *r)
     r->est_baud = shortest ? 1000000 / shortest : 0;
 }
 
-esp_err_t wave_sample(wave_pin_t pin, uint32_t window_us, wave_result_t *out)
+/* The sample itself, without the bus claim. The caller must hold it. Used by
+ * the echo test, which samples RX while it transmits under its own claim. */
+esp_err_t wave_capture(wave_pin_t pin, uint32_t window_us, wave_result_t *out)
 {
-    if (!kline_claim("web")) {
-        return ESP_ERR_INVALID_STATE;
-    }
     if (window_us < WAVE_MIN_US) {
         window_us = WAVE_MIN_US;
     }
@@ -134,11 +133,20 @@ esp_err_t wave_sample(wave_pin_t pin, uint32_t window_us, wave_result_t *out)
 
     memset(out, 0, sizeof(*out));
     capture(gpio, window_us, out);
-    kline_unclaim();
 
     ESP_LOGD(TAG, "pin %s: %" PRIu32 " edges in %" PRIu32 " us, %" PRIu32 " cycles/us",
              pin == WAVE_PIN_TX ? "tx" : "rx", out->edges, out->window_us, s_cyc_per_us);
     return ESP_OK;
+}
+
+esp_err_t wave_sample(wave_pin_t pin, uint32_t window_us, wave_result_t *out)
+{
+    if (!kline_claim("web")) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    esp_err_t err = wave_capture(pin, window_us, out);
+    kline_unclaim();
+    return err;
 }
 
 size_t wave_edges(wave_edge_t *out, size_t max)

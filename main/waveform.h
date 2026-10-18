@@ -45,5 +45,8 @@ typedef struct {
  * Only one sample is kept at a time: a new one replaces the last. */
 esp_err_t wave_sample(wave_pin_t pin, uint32_t window_us, wave_result_t *out);
 
+/* The same sample without taking the bus claim. The caller must hold it. */
+esp_err_t wave_capture(wave_pin_t pin, uint32_t window_us, wave_result_t *out);
+
 /* Copies the edges of the last sample, oldest first. Returns the count. */
 size_t    wave_edges(wave_edge_t *out, size_t max);
