@@ -1343,6 +1343,68 @@ copied into the repo.
 |---|----------|-----------|
 | 49 | **The car sniff stays passive until the screen-to-request mapping is recorded** | The sniff heard the traffic cleanly on the first try, but the values cannot be trusted until the requests are matched to the screens that produced them. Nothing is armed until then |
 
+## 33. Looking for the GEMS init; no reply from the ECU — 2026-10-18
+
+**The unit cannot yet ask the ECU for a value. The init is not found.** The
+car shows coolant through the passive path only: the boot capture listens,
+and the status page shows the last PID 05 reply the board has seen (§32,
+`6924bc7`). Nothing is sent to the car.
+
+**What was tried, all with the car connected (K-line, pin 7; ground, pin 5):**
+- **Five-baud init:** `slowinit E8` was silent twice. A scan of the seven
+  candidate addresses (0x33, 0x11, 0x12, 0x13, 0x16, 0x18, 0x1A) was silent
+  on all seven.
+- **Fast init:** `fastinit` followed by a KWP StartCommunication, in one
+  console write so there is no gap. Three targets, each with the same
+  five-byte frame and checksum: `81 11 F1 81 04`, `81 E8 F1 81 DB`,
+  `81 10 F1 81 03`. Every byte echoed back on each try; none got a reply
+  within 500 ms.
+- **Recordings:** three cold-start recordings with the 3 s RX sampler
+  (ignition off, then on, Nanocom plugged in). Each shows fast bursts from
+  the 10400 traffic. The slow edges cluster at about 230 ms, with some near
+  430 ms. No byte decodes at 200, 215 or 230 ms per bit.
+- **Passive 10400 capture from cold start:** the first frame is
+  `03 22 04 BF E8` at 394 s after boot. Nothing is on the line before it.
+  The five-baud init would be invisible at 10400, so this does not show
+  whether an init happened.
+
+**What was ruled out:**
+- **The L-line:** the diagram shows the petrol ECU on the K-line only. Its
+  connector pin 9 is marked "Not used", and the L-line goes to the diesel
+  ECU and the other modules. The L-line sampler idea is dropped, and
+  socket pin 15 stays unwired.
+- **Timing:** the StartCommunication went out in the same console write as
+  the wake-up, so the gap was not the cause.
+
+**What the manuals and web say:** the GEMS system manual, the GEMS OBD
+manual, the Nanocom GEMS technical data, the 14CUX manual and the fuel
+injection overview have no init, baud rate, keyword or address. They confirm
+socket pin 7 is K, shared with the BeCM, HVAC and ABS, and that pin 15 is L.
+Web searches found only generic ISO 9141 and KWP descriptions. The Nanocom
+GEMS guide link redirected to a general support page.
+
+**What the replies show:** the header `48 6B E8` on every OBD-style reply
+suggests `E8` is the ECU's address, but the five-baud init to `E8` was
+silent. The session start has a security exchange, seed `7B 10` accepted
+with `67 02` on the first attempt, and it appears in every session. Our
+interface sends none of it.
+
+**Safety for this step:** the transmitter was armed only for each test and
+disarmed afterwards. The Nanocom was out for every transmit. Opening COM14
+restarts the board, so the boot capture restarts with it. The boot capture
+has to be stopped before the OTA upload and before any console arm.
+
+**Still open:**
+- The init method, the address and the keyword bytes.
+- Whether the ECU needs something other than ignition on to answer.
+- A logic analyser would settle the five-baud timing. We do not have one.
+
+**Decisions**
+
+| # | Decision | Rationale |
+|---|----------|-----------|
+| 50 | **Stop guessing init targets; the unit shows coolant from the Nanocom's own traffic** | Each target is a transmit to the car. None of the eight five-baud addresses or the three fast-init targets got a reply. The passive path already gives coolant whenever a tester polls the ECU, and nothing is sent. The init can be taken up again with a logic analyser or an init reference |
+
 ## Sources
 
 - [NXP TJA1021 datasheet, rev. 9](https://www.nxp.com/docs/en/data-sheet/TJA1021.pdf)
