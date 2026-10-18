@@ -30,6 +30,7 @@ static uint32_t          s_bytes;
 static uint32_t          s_frames;
 static uint32_t          s_gap_ms;
 static int64_t           s_end_us;
+static int64_t           s_t0_us;         /* board uptime at the start of the latest capture */
 static const char       *s_owner = "";
 static volatile bool     s_running;
 static volatile bool     s_stop;
@@ -89,6 +90,9 @@ static void capture(uint32_t gap_ms, bool print)
     kline_flush_rx();
 
     const int64_t start_us = esp_timer_get_time();
+    lock();
+    s_t0_us = start_us;
+    unlock();
     /* Poll at most every 20 ms so a frame closes soon after its gap. */
     const uint32_t poll_ms = gap_ms < 20 ? (gap_ms ? gap_ms : 1) : 20;
 
@@ -223,6 +227,7 @@ void sniff_get_state(sniff_state_t *out)
     out->bytes    = s_bytes;
     out->frames   = s_frames;
     out->gap_ms   = s_gap_ms;
+    out->t0_us    = s_t0_us;
     if (s_running) {
         int64_t left = (s_end_us - esp_timer_get_time()) / 1000000;
         out->remain_s = left > 0 ? (uint32_t)left : 0;

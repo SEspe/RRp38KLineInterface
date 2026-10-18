@@ -34,6 +34,7 @@ typedef struct {
     uint32_t frames;     /* this session */
     uint32_t gap_ms;
     uint32_t remain_s;
+    int64_t  t0_us;      /* board uptime when the latest capture began; frame t_ms counts from here */
 } sniff_state_t;
 
 /* Once at boot, before the console or web server can call in. */

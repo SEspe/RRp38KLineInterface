@@ -324,12 +324,14 @@ static const char INDEX_HTML[] =
 "x.upload.onprogress=e=>{if(e.lengthComputable)p.textContent='Uploading: '+Math.round(e.loaded/e.total*100)+'%';};"
 "x.onload=()=>{p.textContent=x.status===200?'Done. Rebooting \\u2014 reload in about 10 s.':'Error: '+x.status+' '+x.responseText;};"
 "x.onerror=()=>{p.textContent='Upload error';};x.send(f);}"
-"var SQ=0,SS=-1,SL=[],SR=false;"
+"var SQ=0,SS=-1,SL=[],SR=false,BO=0;"
 "function pad(s,n){s=String(s);while(s.length<n)s=' '+s;return s;}"
+"function wallStamp(t){var w=new Date(BO+t),p=function(n,k){return ('000'+n).slice(-k);};return w.getFullYear()+'-'+p(w.getMonth()+1,2)+'-'+p(w.getDate(),2)+' '+p(w.getHours(),2)+':'+p(w.getMinutes(),2)+':'+p(w.getSeconds(),2)+'.'+p(w.getMilliseconds(),3);}"
 "function sniffPoll(){fetch('/api/sniff?since='+SQ).then(r=>r.json()).then(d=>{"
+"if(d.now!==undefined)BO=Date.now()-(d.now-d.t0);"
 "if(d.session!==SS){if(SS!==-1&&d.frames+d.f.length>0)SL.push('--- capture '+d.session+' ---');SS=d.session;}"
 "d.f.forEach(f=>{SQ=Math.max(SQ,f[0]);"
-"SL.push('['+pad((f[1]/1000).toFixed(3),9)+'s +'+pad(f[2],5)+'ms] '+f[4]+(f[3]>" "48" "?' \\u2026 ('+f[3]+' bytes)':''));});"
+"SL.push('['+wallStamp(f[1])+' '+pad((f[1]/1000).toFixed(3),9)+'s +'+pad(f[2],5)+'ms] '+f[4]+(f[3]>" "48" "?' \\u2026 ('+f[3]+' bytes)':''));});"
 "while(SL.length>2000)SL.shift();"
 "if(d.f.length){var e=document.getElementById('sl'),b=e.scrollTop+e.clientHeight>=e.scrollHeight-20;"
 "e.textContent=SL.join('\\n');if(b)e.scrollTop=e.scrollHeight;}"
@@ -694,7 +696,9 @@ static esp_err_t h_ap_save(httpd_req_t *req)
 
 /* GET /api/sniff?since=N - capture state plus frames newer than N, at most
  * 32 per call; the page asks again at once when it gets a full batch.
- * Frames are [seq, t_ms, gap_ms, len, "hex"]. */
+ * Frames are [seq, t_ms, gap_ms, len, "hex"]; t_ms and now are board uptime
+ * in ms (t0 is the board uptime when the capture began), and the page turns
+ * them into wall-clock time. */
 #define SNIFF_BATCH 32
 
 static esp_err_t h_sniff_get(httpd_req_t *req)
@@ -720,10 +724,11 @@ static esp_err_t h_sniff_get(httpd_req_t *req)
 
     size_t n = snprintf(buf, cap,
         "{\"running\":%s,\"owner\":\"%s\",\"session\":%lu,\"seq\":%lu,\"bytes\":%lu,"
-        "\"frames\":%lu,\"gap\":%lu,\"remain\":%lu,\"f\":[",
+        "\"frames\":%lu,\"gap\":%lu,\"remain\":%lu,\"now\":%lld,\"t0\":%lld,\"f\":[",
         st.running ? "true" : "false", st.owner, (unsigned long)st.session,
         (unsigned long)st.last_seq, (unsigned long)st.bytes, (unsigned long)st.frames,
-        (unsigned long)st.gap_ms, (unsigned long)st.remain_s);
+        (unsigned long)st.gap_ms, (unsigned long)st.remain_s,
+        (long long)(esp_timer_get_time() / 1000), (long long)(st.t0_us / 1000));
     for (size_t i = 0; i < nf; i++) {
         const sniff_frame_t *f = &fr[i];
         n += snprintf(buf + n, cap - n, "%s[%lu,%lu,%lu,%u,\"", i ? "," : "",
