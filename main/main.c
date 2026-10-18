@@ -73,6 +73,12 @@ void app_main(void)
         ESP_LOGE(TAG, "WiFi not started (%s); console only", esp_err_to_name(err));
     }
 
+    /* Passive capture from boot, so the coolant card on the status page is
+     * live whenever a tester polls the ECU. It only listens. */
+    if (sniff_start_bg(SNIFF_MAX_SECS, 10) != ESP_OK) {
+        ESP_LOGW(TAG, "background sniff not started");
+    }
+
     esp_console_repl_t *repl = NULL;
     esp_console_repl_config_t repl_config = ESP_CONSOLE_REPL_CONFIG_DEFAULT();
     repl_config.prompt          = "p38>";
