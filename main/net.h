@@ -26,6 +26,10 @@ typedef struct {
 
 void      net_get_status(net_status_t *out);
 
+/* UTC, "YYYY-MM-DD HH:MM:SS". False until SNTP has set the clock; it needs
+ * the home network, since the AP has no internet. */
+bool      net_clock_text(char *buf, size_t n);
+
 /* Persist settings. The caller reboots to apply them. */
 esp_err_t net_save_sta(const char *ssid, const char *pass);
 esp_err_t net_save_ap_pass(const char *pass);   /* 8..63 chars */

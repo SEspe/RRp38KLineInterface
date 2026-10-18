@@ -328,7 +328,8 @@ static const char INDEX_HTML[] =
 "x.onerror=()=>{p.textContent='Upload error';};x.send(f);}"
 "var SQ=0,SS=-1,SL=[],SR=false,BO=0;"
 "function pad(s,n){s=String(s);while(s.length<n)s=' '+s;return s;}"
-"function wallStamp(t){var w=new Date(BO+t),p=function(n,k){return ('000'+n).slice(-k);};return w.getFullYear()+'-'+p(w.getMonth()+1,2)+'-'+p(w.getDate(),2)+' '+p(w.getHours(),2)+':'+p(w.getMinutes(),2)+':'+p(w.getSeconds(),2)+'.'+p(w.getMilliseconds(),3);}"
+"function wallStamp(t){return new Date(BO+t).toISOString().slice(0,23).replace('T',' ')+' UTC';}"
+"function osloText(l){var m=l.match(/^\\[(\\d{4}-\\d\\d-\\d\\d \\d\\d:\\d\\d:\\d\\d\\.\\d{3}) UTC/);if(!m)return l;var d=new Date(m[1].replace(' ','T')+'Z'),o=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Oslo',hour12:false,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'}).format(d);return '['+o+'.'+('00'+d.getUTCMilliseconds()).slice(-3)+' Oslo'+l.slice(m[0].length);}"
 "function sniffPoll(){fetch('/api/sniff?since='+SQ).then(r=>r.json()).then(d=>{"
 "if(d.now!==undefined)BO=Date.now()-(d.now-d.t0);"
 "if(d.session!==SS){if(SS!==-1&&d.frames+d.f.length>0)SL.push('--- capture '+d.session+' ---');SS=d.session;}"
@@ -336,7 +337,7 @@ static const char INDEX_HTML[] =
 "SL.push('['+wallStamp(f[1])+' '+pad((f[1]/1000).toFixed(3),9)+'s +'+pad(f[2],5)+'ms] '+f[4]+(f[3]>" "48" "?' \\u2026 ('+f[3]+' bytes)':''));});"
 "while(SL.length>2000)SL.shift();"
 "if(d.f.length){var e=document.getElementById('sl'),b=e.scrollTop+e.clientHeight>=e.scrollHeight-20;"
-"e.textContent=SL.join('\\n');if(b)e.scrollTop=e.scrollHeight;}"
+"e.textContent=SL.map(osloText).join('\\n');if(b)e.scrollTop=e.scrollHeight;}"
 "SR=d.running;document.getElementById('sb').textContent=SR?'Stop':'Start';"
 "var st=document.getElementById('stab');st.textContent=SR?'Sniff \\u25CF REC':'Sniff';st.classList.toggle('rec',SR);"
 "document.getElementById('sstop').style.display=SR?'inline-block':'none';"
@@ -551,13 +552,16 @@ static esp_err_t h_status(httpd_req_t *req)
     json_esc(ap, sizeof(ap), n.ap_ssid);
     json_esc(sta, sizeof(sta), n.sta_ssid);
 
+    char clock[24] = "";            /* empty until SNTP has set the clock */
+    net_clock_text(clock, sizeof(clock));
+
     char buf[640];
     snprintf(buf, sizeof(buf),
         "{\"kline\":{\"txBuild\":%s,\"armed\":%s,\"started\":%s,\"baud\":%d,"
         "\"tx\":%d,\"rx\":%d,\"en\":%d,\"drv\":%d},"
         "\"net\":{\"apSsid\":\"%s\",\"apClients\":%d,\"apCh\":%d,\"staSsid\":\"%s\","
         "\"staUp\":%s,\"staIp\":\"%s\",\"rssi\":%d,\"drops\":%lu},"
-        "\"sys\":{\"uptime\":%lld,\"heap\":%lu,\"heapMin\":%lu}}",
+        "\"sys\":{\"uptime\":%lld,\"heap\":%lu,\"heapMin\":%lu,\"clock\":\"%s\"}}",
 #if CONFIG_RRP38_ALLOW_TX
         "true",
 #else
@@ -573,7 +577,7 @@ static esp_err_t h_status(httpd_req_t *req)
         (unsigned long)n.sta_disconnects,
         (long long)(esp_timer_get_time() / 1000000),
         (unsigned long)esp_get_free_heap_size(),
-        (unsigned long)esp_get_minimum_free_heap_size());
+        (unsigned long)esp_get_minimum_free_heap_size(), clock);
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_sendstr(req, buf);
 }

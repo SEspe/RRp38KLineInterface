@@ -12,10 +12,12 @@
  * entirely while a phone is connected to the AP (the in-car case).
  */
 #include <string.h>
+#include <time.h>
 
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_netif.h"
+#include "esp_sntp.h"
 #include "esp_timer.h"
 #include "esp_wifi.h"
 #include "mdns.h"
@@ -89,6 +91,36 @@ esp_err_t net_save_ap_pass(const char *pass)
     return nvs_set_strings("appass", pass, NULL, NULL);
 }
 
+/* ------------------------------------------------------------- clock -- */
+
+static bool s_sntp_started;
+
+/* Runs once, on the first IP. Syncs in the background; never blocks. The
+ * clock is kept in UTC; the page shows local time. */
+static void start_sntp(void)
+{
+    if (s_sntp_started) {
+        return;
+    }
+    s_sntp_started = true;
+    esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
+    esp_sntp_setservername(0, "pool.ntp.org");
+    esp_sntp_init();
+    ESP_LOGI(TAG, "SNTP started");
+}
+
+bool net_clock_text(char *buf, size_t n)
+{
+    time_t now = time(NULL);
+    if (now < 1700000000) {         /* not set yet: before Nov 2023 */
+        return false;
+    }
+    struct tm t;
+    gmtime_r(&now, &t);
+    strftime(buf, n, "%Y-%m-%d %H:%M:%S", &t);
+    return true;
+}
+
 /* ------------------------------------------------------------- events -- */
 
 static void schedule_retry(void)
@@ -154,6 +186,7 @@ static void on_event(void *arg, esp_event_base_t base, int32_t id, void *data)
         esp_timer_stop(s_retry_timer);
         ip_event_got_ip_t *ev = data;
         ESP_LOGI(TAG, "joined %s as " IPSTR, s_sta_ssid, IP2STR(&ev->ip_info.ip));
+        start_sntp();
     }
 }
 
