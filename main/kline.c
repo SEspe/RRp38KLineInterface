@@ -562,7 +562,10 @@ esp_err_t kline_slow_init(uint8_t addr, kline_init_result_t *out)
         out->kw2 = kw2;
     }
 
-    /* W4: tester replies with the bitwise inverse of KW2. */
+    /* W4: tester replies with the bitwise inverse of KW2, 25..50 ms after it.
+     * Miss this window and a GEMS ECU hands over the keybytes but never
+     * enters the initialised state, so it ignores every request. Keep the
+     * delay inside the window; CONFIG_FREERTOS_HZ=1000 keeps it accurate. */
     vTaskDelay(pdMS_TO_TICKS(KLINE_W4_MS));
     uint8_t inv_kw2 = (uint8_t)~kw2;
     if (uart_write_bytes(KL_PORT, &inv_kw2, 1) != 1) {
