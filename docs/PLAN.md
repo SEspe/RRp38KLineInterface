@@ -12,8 +12,10 @@ turned out to be an ESP32-C6; the firmware is retargeted and runs v0.4.0.
 Track H (web HMI, OTA from GitHub) is done. Waveform sampler added
 (console `wave`, web Debug tab), deployed to the board by OTA on
 2026-10-17. Bench finding open: RX (GPIO19) reads a steady low with
-TX high; see SESSION-NOTES §25. Next: that check, then the powered
-bench checks in HARDWARE.md, then Phase 3.**
+TX high; see SESSION-NOTES §25. First passive sniff in the car, 2026-10-18:
+the bus is quiet with ignition off and carries the Nanocom and ECU traffic
+with ignition on (SESSION-NOTES §32). Next: decode the captures against the
+screens used, then the powered bench checks in HARDWARE.md, then Phase 3.**
 
 ---
 

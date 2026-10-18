@@ -65,7 +65,7 @@ Current status: **firmware retargeted to ESP32-C6, flashed, and answering
 on the console; a plain TJA1021 breakout (no MCU) received 2026-10-16,
 ready for bench checks. Web HMI, live sniff view and OTA from GitHub releases done (v0.4.0, Track H).
 Waveform sampler (console `wave`, web Debug tab) added and deployed by OTA; the
-RX pin still reads low on the bench, under investigation** (PLAN.md Phase 2 and Track H, HARDWARE.md, SESSION-NOTES §25).
+RX pin still reads low on the bench, under investigation. First passive sniff in the car done 2026-10-18: the bus needs ignition on to carry traffic, and the sniff heard the Nanocom and ECU** (PLAN.md Phase 2 and Track H, HARDWARE.md, SESSION-NOTES §25 and §32).
 
 ## Hardware
 

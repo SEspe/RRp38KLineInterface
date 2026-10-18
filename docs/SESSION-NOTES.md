@@ -1272,6 +1272,67 @@ screenshot only.
 | 47 | **The web may transmit, but only the echo test, and only with the exact confirmation** | The bench wiring is easiest to check from the Debug tab. The request must carry the confirmation text, and the page asks first. Nothing else transmits from the web |
 | 48 | **The echo test samples RX while it transmits, under its own claim** | A transmit and a capture on the same claim show the frames on the wire, which the echo alone cannot. The sampler reads a GPIO input and never drives a pin |
 
+## 32. First passive sniff in the car — 2026-10-18
+
+**The sniff works on the car's K-line, with ignition on.** The bus is quiet
+with ignition off, and the sniff heard the Nanocom's requests and the ECU's
+replies once ignition was on. Nothing was armed or sent.
+
+**What was done:**
+1. Ignition off. The sniff was running and the bus was quiet.
+2. Ignition on. The bus carried traffic, so the sniff is not hearing a dead
+   line.
+3. The Nanocom was connected, and its engine ECU status pages were opened.
+   The sniff ran throughout.
+
+**Capture:** `Downloads\kline-sniff-2026-10-18-13-25-22.txt`, about 64
+lines, covering roughly 56 to 84 seconds of the sniff's clock. It is not
+copied into the repo.
+
+**What the capture shows:**
+- **Two message styles on the same line:**
+  - KWP-style reads (service `0x22`). Requests look like `03 22 00 15 3A`
+    and are answered with `62`, the same two-byte ID, e.g.
+    `04 62 00 15 C0 3B`. Most of the traffic is this kind. IDs seen include
+    `00 15`, `00 10`, `00 0C`, `00 18`, `00 1A`, `00 3B`, `23 34`, `23 32`,
+    `23 47`, `23 37`, `23 36`, `23 46`, `23 33`, and `01 2C`.
+  - OBD-style reads (service `01`). Requests look like `02 01 05 08`, and
+    replies carry the ISO 9141 header `48 6B E8` then `41`, e.g.
+    `48 6B E8 41 05 4F 30`. PIDs seen: `03`, `04`, `05`, `06`, `07`, `08`,
+    `09`, `0F`, `10`, `12`, `13`, `14` and `18`.
+- **Checksums are right.** Every frame's last byte is the low byte of the
+  sum of the bytes before it, so the framing is correct.
+- **Each line is the tester's request followed by the ECU's reply.** The
+  K-line is half-duplex, so the tester sees its own bytes come back.
+- **Polling rhythm:** frames are about 225 ms apart. Requests repeat two or
+  three times, which fits the Nanocom re-polling the same values.
+- **Two oddities:** `02 01 0F 12` at 63.1 s is cut short, with no reply
+  after it. It is probably a dropped byte, not a protocol event. The frame
+  `01 A4 A5 01 E4 E5` at 83.4 s has no reply and is not identified.
+
+**Not yet done:**
+- The values have not been decoded. The `0x22` IDs are not identified in
+  any source here, and the `01` PIDs have not been converted (the coolant
+  reply `4F` is a candidate reading, not a confirmed one).
+- Which Nanocom screen produced which request is not recorded. Matching
+  each request to a screen needs the screen list from the session.
+- The sniffer's log lines were not checked against the Nanocom's own
+  display.
+
+**Still open** (from section 30, unchanged unless noted):
+- Ignition-on was needed. The session 30 question "ignition state" is now
+  answered: the bus needs ignition on to carry traffic.
+- The fuse and the PC's ground isolation were not recorded this session,
+  and must be before the next car session.
+- The bench current draw at 12 V has never been recorded.
+- LAN-only operation: options A, B and C, not built.
+
+**Decisions**
+
+| # | Decision | Rationale |
+|---|----------|-----------|
+| 49 | **The car sniff stays passive until the screen-to-request mapping is recorded** | The sniff heard the traffic cleanly on the first try, but the values cannot be trusted until the requests are matched to the screens that produced them. Nothing is armed until then |
+
 ## Sources
 
 - [NXP TJA1021 datasheet, rev. 9](https://www.nxp.com/docs/en/data-sheet/TJA1021.pdf)
