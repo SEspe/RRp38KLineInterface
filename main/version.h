@@ -3,7 +3,7 @@
 /* FIRMWARE_VERSION is also read by the top-level CMakeLists.txt into
  * PROJECT_VER, so it lands in the app descriptor and the version of the image
  * in the inactive OTA slot can be read back at runtime. */
-#define FIRMWARE_VERSION    "0.4.0"
+#define FIRMWARE_VERSION    "0.5.0"
 #define FIRMWARE_NAME       "RRp38KLine"
 #define MDNS_HOSTNAME       "rrp38"          /* http://rrp38.local/ and the DHCP hostname */
 #define WIFI_AP_SSID        "RRp38-KLine"
