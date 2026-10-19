@@ -1507,6 +1507,19 @@ to be done with the car off and the battery disconnected, and in daylight.
 |---|----------|-----------|
 | 52 | **TX stays on GPIO 15 unless a reason comes up** | The move gave the same result as GPIO 18, and both pins pass the bench echo. GPIO 15 is free and keeps 18 for a later use. Revert only if GPIO 15 causes a fault on the bus |
 
+**Results, later the same day (2026-10-19), with USB console:**
+- **Five-baud init to `0x33`:** the address the ISO 9141-2 standard uses for the
+  init. The Morgan GEMS document in the project's sources (`GEMSbyPoole.pdf`,
+  gomog.com) says GEMS uses the ISO 9141-2 interface, with the K line on pin 7
+  and the L line on pin 15. `slowinit 33` with the 560 Ω in and HOST (master) was
+  silent: no sync byte.
+- **Cumulative five-baud result:** `0x33` and `0x11, 0x12, 0x13, 0x16, 0x18, 0x1A`
+  (the scan list) and `0xE8`, all silent.
+- **Slave, same day:** the 560 Ω removed and the jumper on SLAVE. `slowinit 33`
+  was silent again. So `0x33` gets no answer with either master or slave setting.
+- **Still open:** the pin 15 continuity check (§33). The GEMS document also
+  lists pin 5 as signal ground, which the interface uses as the car ground.
+
 **Also open:**
 - The 1 kHz logger (`fc5b207`, §33) and the continuity check both help decide
   whether the Nanocom needs an init we have not seen.
