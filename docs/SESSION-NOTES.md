@@ -1531,6 +1531,19 @@ to be done with the car off and the battery disconnected, and in daylight.
 - **Still open:** the pin 15 continuity check (§33). The GEMS document also
   lists pin 5 as signal ground, which the interface uses as the car ground.
 
+**Reference, freediag (open source K-line tool):** the ISO 9141 init in
+`scantool/diag_l2_iso9141.c` (`dl2p_iso9141_wakeupECU()`) matches ours: the
+target address at 5 baud; wait for the idle bus; read the `55` sync byte;
+read two keyword bytes, which must be `08` or `94`; wait W4; send the inverted
+second keyword; expect the inverted address back. It names no GEMS address. A
+silent ECU at a given address means no sync byte, which points to the address
+(or the ECU not awake) rather than the timing.
+
+**Address search, not done on the car:** a sweep of all 256 addresses sends 256
+init sequences to every module on the bus, including the BeCM, so it is not
+run. Next steps that are passive: capture the ABS or BeCM page and read their
+reply headers. The engine ECU's header is `E8`, the candidate for its address.
+
 **Also open:**
 - The 1 kHz logger (`fc5b207`, §33) and the continuity check both help decide
   whether the Nanocom needs an init we have not seen.
