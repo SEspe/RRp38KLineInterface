@@ -1457,6 +1457,56 @@ to be done with the car off and the battery disconnected, and in daylight.
 6. Continuity check, car off: socket pin 15 to the petrol ECU's pins 9 and 10
    (C506 / C106, LGR). This is still open from §33.
 
+**Results, 2026-10-19 (after the pull-up and MASTER were fitted):**
+- **Idle voltage:** 12.2 V on the K-line against ground, ignition on, board
+  idle. The pull-up is reaching the line.
+- **Direct request:** `send 03 22 04 BF E8` (the Nanocom's first request), with
+  the transmitter armed. Every byte echoed back. No reply within 500 ms.
+- **Five-baud init:** `slowinit E8` was silent (no sync byte). The
+  transmitter was disarmed afterwards.
+- **Conclusion:** the pull-up and MASTER were not the cause. The echo shows
+  the bytes reach the line, and the ECU still does not answer. The open
+  questions are the init, or a session setup the Nanocom does first.
+- **Still to do:** capture our own frame on the bus with the wave sampler during
+  the send (step 5 above). Then decide whether to take the 560 Ω back out and
+  set SLAVE. The continuity check from pin 15 is still open.
+
+**Results, 2026-10-19 (second LIN board, MASTER, 560 Ω pull-up fitted):**
+- **Bench echo test (car unplugged, LIN disconnected):** `55 FF 00 A5 5A` echoed
+  on every byte. The RX capture shows the frame at about 96 µs per bit (10400).
+  The second board had failed an earlier echo test (§31); it passes now.
+- **Idle voltage in the car:** 12.4 V on the K-line against ground, ignition on,
+  board idle, Nanocom out.
+- **Direct request:** `send 03 22 04 BF E8`, with the transmitter armed. Every
+  byte echoed back. No reply within 500 ms. The same result as the first board.
+- **Conclusion:** the board is not the cause. Both boards put the frame on the
+  line at the right voltage, and the ECU does not answer the Nanocom's first
+  request sent alone.
+- **Still to do:** the bus-level capture of our own frame (step 5), and the
+  continuity check from pin 15 (§33).
+
+**TX moved to GPIO 15 (2026-10-19):**
+- The four config files (`sdkconfig`, `sdkconfig.ci`, `sdkconfig.defaults`,
+  `sdkconfig.ci.defaults`) now set `CONFIG_RRP38_KLINE_TX_GPIO=15`. The TX
+  build was rebuilt and flashed, and `status` reports TX GPIO 15, RX GPIO 19.
+- The TX wire on the board moved from GPIO 18 to GPIO 15, with the car off and
+  the battery disconnected.
+- **Bench echo test on GPIO 15 (car unplugged):** `55 FF 00 A5 5A` echoed on
+  every byte, at about 96 µs per bit.
+- **Idle voltage in the car after the move:** 12.4 V, ignition on, board idle.
+- **Direct request on GPIO 15:** `send 03 22 04 BF E8`, armed. Every byte echoed
+  back. No reply within 500 ms. Same result as on GPIO 18.
+- **Conclusion:** moving TX does not change the result. The frame reaches the
+  line at the right voltage and timing on both pins, and the ECU does not answer
+  it. The open questions are still the init and the session setup the Nanocom
+  performs first.
+
+**Decisions**
+
+| # | Decision | Rationale |
+|---|----------|-----------|
+| 52 | **TX stays on GPIO 15 unless a reason comes up** | The move gave the same result as GPIO 18, and both pins pass the bench echo. GPIO 15 is free and keeps 18 for a later use. Revert only if GPIO 15 causes a fault on the bus |
+
 **Also open:**
 - The 1 kHz logger (`fc5b207`, §33) and the continuity check both help decide
   whether the Nanocom needs an init we have not seen.
