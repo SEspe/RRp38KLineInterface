@@ -1456,6 +1456,16 @@ to be done with the car off and the battery disconnected, and in daylight.
    sampler during the send (same bytes), to confirm the levels and bit timing.
 6. Continuity check, car off: socket pin 15 to the petrol ECU's pins 9 and 10
    (C506 / C106, LGR). This is still open from §33.
+7. **Scope the driven low (next day).** The meter's min/max record averaged the
+   20 ms pulses: TXD, GPIO 15 and the K-line all read about half-level, so those
+   readings are not the minimum. With a scope, run `txlow 100` on the bench (car
+   unplugged) and measure the K-line low against ground, and the high. A low
+   near 1 V is correct; a low well above that means the driver is weak.
+8. **If the low is too high,** check in order: the ground between the board and
+   the car's chassis ground; the transceiver's supply and temperature; the
+   transceiver's enable (pin 2, SLP_N, must read about 3.3 V; GPIO 20 through
+   1 kΩ, with the internal pull-down, so an open pin 2 leaves the chip asleep);
+   the load on the line.
 
 **Results, 2026-10-19 (after the pull-up and MASTER were fitted):**
 - **Idle voltage:** 12.2 V on the K-line against ground, ignition on, board
@@ -1508,11 +1518,12 @@ to be done with the car off and the battery disconnected, and in daylight.
 | 52 | **TX stays on GPIO 15 unless a reason comes up** | The move gave the same result as GPIO 18, and both pins pass the bench echo. GPIO 15 is free and keeps 18 for a later use. Revert only if GPIO 15 causes a fault on the bus |
 
 **Results, later the same day (2026-10-19), with USB console:**
-- **Five-baud init to `0x33`:** the address the ISO 9141-2 standard uses for the
-  init. The Morgan GEMS document in the project's sources (`GEMSbyPoole.pdf`,
-  gomog.com) says GEMS uses the ISO 9141-2 interface, with the K line on pin 7
-  and the L line on pin 15. `slowinit 33` with the 560 Ω in and HOST (master) was
-  silent: no sync byte.
+- **Five-baud init to `0x33`:** `0x33` is not from the GEMS document. It is the
+  ISO 9141-2 five-baud tester address as I recall it, and the value used as the
+  generic example in a J2534 reference. The GEMS document (`GEMSbyPoole.pdf`,
+  gomog.com) gives no address. It says GEMS uses the ISO 9141-2 interface, with
+  the K line on pin 7 and the L line on pin 15. `slowinit 33` with the 560 Ω in
+  and HOST (master) was silent: no sync byte.
 - **Cumulative five-baud result:** `0x33` and `0x11, 0x12, 0x13, 0x16, 0x18, 0x1A`
   (the scan list) and `0xE8`, all silent.
 - **Slave, same day:** the 560 Ω removed and the jumper on SLAVE. `slowinit 33`
